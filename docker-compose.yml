@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13-alpine
+    container_name: redteam_postgres
+    environment:
+      POSTGRES_DB: redteam_db
+      POSTGRES_USER: redteam
+      POSTGRES_PASSWORD: securepassword # CHANGE THIS IN PRODUCTION
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:6-alpine
+    container_name: redteam_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n
+    container_name: redteam_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=change-this-password # CHANGE THIS IN PRODUCTION
+      - N8N_HOST=localhost # For external access from host machine
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/ # For external access from host machine
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  redteam_app:
+    build: . # Build from Dockerfile in current directory
+    container_name: redteam_app
+    command: gunicorn -w 4 -b 0.0.0.0:5000 run:app # Use gunicorn for production-ready server
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development # Or production
+      - SECRET_KEY=your-flask-secret-key # CHANGE THIS IN PRODUCTION
+      - DATABASE_URL=postgresql://redteam:securepassword@postgres:5432/redteam_db # Use service name 'postgres'
+      - REDIS_URL=redis://redis:6379/0 # Use service name 'redis'
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} # Passed from host .env
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # Passed from host .env
+      - MAX_SCAN_TIMEOUT=300
+      - ENABLE_EXPLOITATION=false
+      - LOG_LEVEL=INFO
+    volumes:
+      - .:/app # Mount current directory into container
+      - ./reports:/app/reports # Ensure reports persist on host
+      - ./logs:/app/logs # Ensure logs persist on host
+      - ./data:/app/data # Ensure data persists on host
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  n8n_data:

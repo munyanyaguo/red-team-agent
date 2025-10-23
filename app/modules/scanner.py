@@ -1,0 +1,365 @@
+import requests
+import logging
+from typing import Dict, List, Any
+from urllib.parse import urljoin, urlparse
+import re
+
+logger = logging.getLogger(__name__)
+
+class VulnerabilityScanner:
+    """Basic vulnerability scanning capabilities"""
+    
+    def __init__(self):
+        self.findings = []
+        
+    def scan(self, target: str, scan_type: str = 'basic') -> Dict[str, Any]:
+        """
+        Run vulnerability scan on target
+        scan_type: basic, web, network
+        """
+        logger.info(f"Starting {scan_type} vulnerability scan on {target}")
+        
+        self.findings = []
+        results = {
+            'target': target,
+            'scan_type': scan_type,
+            'findings': []
+        }
+        
+        try:
+            if scan_type == 'web' or scan_type == 'basic':
+                # Web application scanning
+                results['findings'].extend(self.web_vulnerability_scan(target))
+            
+            if scan_type == 'network' or scan_type == 'basic':
+                # Network-level checks
+                results['findings'].extend(self.network_vulnerability_scan(target))
+            
+            logger.info(f"Scan completed. Found {len(results['findings'])} potential issues")
+            
+        except Exception as e:
+            logger.error(f"Scan failed: {str(e)}")
+            results['error'] = str(e)
+        
+        return results
+    
+    def web_vulnerability_scan(self, target: str) -> List[Dict[str, Any]]:
+        """Scan for common web vulnerabilities"""
+        logger.info(f"Running web vulnerability scan on {target}")
+        
+        findings = []
+        
+        # Ensure target has protocol
+        if not target.startswith('http'):
+            target = f"http://{target}"
+        
+        # Check SSL/TLS
+        findings.extend(self.check_ssl_tls(target))
+        
+        # Check HTTP headers
+        findings.extend(self.check_security_headers(target))
+        
+        # Check for common files/directories
+        findings.extend(self.check_common_files(target))
+        
+        # Check for information disclosure
+        findings.extend(self.check_information_disclosure(target))
+        
+        # Basic XSS test
+        findings.extend(self.test_xss_basic(target))
+        
+        return findings
+    
+    def network_vulnerability_scan(self, target: str) -> List[Dict[str, Any]]:
+        """Scan for network-level vulnerabilities"""
+        logger.info(f"Running network vulnerability scan on {target}")
+        
+        findings = []
+        
+        # This would integrate with tools like nmap, openvas, etc.
+        # For now, basic checks
+        
+        return findings
+    
+    def check_ssl_tls(self, target: str) -> List[Dict[str, Any]]:
+        """Check SSL/TLS configuration"""
+        findings = []
+        
+        if not target.startswith('https://'):
+            # Check if HTTPS is available
+            https_target = target.replace('http://', 'https://')
+            try:
+                response = requests.get(https_target, timeout=5, verify=False)
+                if response.status_code < 400:
+                    findings.append({
+                        'title': 'HTTPS Available but Not Enforced',
+                        'severity': 'medium',
+                        'description': 'The site is accessible over HTTPS but does not redirect HTTP to HTTPS',
+                        'remediation': 'Implement automatic HTTPS redirect and HSTS header',
+                        'cwe': 'CWE-319'
+                    })
+            except:
+                findings.append({
+                    'title': 'HTTPS Not Available',
+                    'severity': 'high',
+                    'description': 'The site does not support HTTPS encryption',
+                    'remediation': 'Implement SSL/TLS certificate and enable HTTPS',
+                    'cwe': 'CWE-319'
+                })
+        else:
+            # Check certificate validity (simplified)
+            try:
+                response = requests.get(target, timeout=5, verify=True)
+            except requests.exceptions.SSLError:
+                findings.append({
+                    'title': 'Invalid SSL Certificate',
+                    'severity': 'high',
+                    'description': 'The SSL certificate is invalid, expired, or self-signed',
+                    'remediation': 'Install a valid SSL certificate from a trusted CA',
+                    'cwe': 'CWE-295'
+                })
+            except:
+                pass
+        
+        return findings
+    
+    def check_security_headers(self, target: str) -> List[Dict[str, Any]]:
+        """Check for missing security headers"""
+        findings = []
+        
+        try:
+            response = requests.get(target, timeout=10, verify=False, allow_redirects=True)
+            headers = response.headers
+            
+            # Define critical security headers
+            security_checks = {
+                'Strict-Transport-Security': {
+                    'severity': 'medium',
+                    'description': 'HSTS header is missing, allowing potential downgrade attacks',
+                    'remediation': 'Add Strict-Transport-Security header'
+                },
+                'X-Frame-Options': {
+                    'severity': 'medium',
+                    'description': 'X-Frame-Options header is missing, site may be vulnerable to clickjacking',
+                    'remediation': 'Add X-Frame-Options: DENY or SAMEORIGIN'
+                },
+                'X-Content-Type-Options': {
+                    'severity': 'low',
+                    'description': 'X-Content-Type-Options header is missing',
+                    'remediation': 'Add X-Content-Type-Options: nosniff'
+                },
+                'Content-Security-Policy': {
+                    'severity': 'medium',
+                    'description': 'Content-Security-Policy header is missing',
+                    'remediation': 'Implement a Content Security Policy'
+                },
+                'X-XSS-Protection': {
+                    'severity': 'low',
+                    'description': 'X-XSS-Protection header is missing',
+                    'remediation': 'Add X-XSS-Protection: 1; mode=block'
+                }
+            }
+            
+            for header, details in security_checks.items():
+                if header not in headers:
+                    findings.append({
+                        'title': f'Missing Security Header: {header}',
+                        'severity': details['severity'],
+                        'description': details['description'],
+                        'remediation': details['remediation'],
+                        'cwe': 'CWE-693'
+                    })
+            
+            # Check for information disclosure in headers
+            disclosure_headers = ['Server', 'X-Powered-By', 'X-AspNet-Version']
+            for header in disclosure_headers:
+                if header in headers:
+                    findings.append({
+                        'title': f'Information Disclosure: {header} Header',
+                        'severity': 'info',
+                        'description': f'Server reveals technology information via {header} header: {headers[header]}',
+                        'remediation': f'Remove or obfuscate the {header} header',
+                        'cwe': 'CWE-200'
+                    })
+            
+        except Exception as e:
+            logger.error(f"Error checking security headers: {str(e)}")
+        
+        return findings
+    
+    def check_common_files(self, target: str) -> List[Dict[str, Any]]:
+        """Check for exposed sensitive files and directories"""
+        findings = []
+        
+        # Common sensitive files
+        sensitive_files = [
+            '.git/config',
+            '.env',
+            'config.php',
+            'wp-config.php',
+            'web.config',
+            '.htaccess',
+            'robots.txt',
+            'sitemap.xml',
+            'phpinfo.php',
+            'info.php',
+            'backup.sql',
+            'dump.sql',
+            '.DS_Store',
+            'README.md'
+        ]
+        
+        # Common admin paths
+        admin_paths = [
+            'admin',
+            'administrator',
+            'wp-admin',
+            'phpmyadmin',
+            'cpanel',
+            'login',
+            'admin.php',
+            'dashboard'
+        ]
+        
+        logger.info(f"Checking for exposed sensitive files on {target}")
+        
+        for file in sensitive_files:
+            url = urljoin(target, file)
+            try:
+                response = requests.get(url, timeout=5, verify=False)
+                if response.status_code == 200:
+                    findings.append({
+                        'title': f'Exposed Sensitive File: {file}',
+                        'severity': 'high' if file in ['.git/config', '.env', 'config.php'] else 'medium',
+                        'description': f'Sensitive file {file} is publicly accessible',
+                        'url': url,
+                        'remediation': 'Remove or restrict access to sensitive files',
+                        'cwe': 'CWE-200'
+                    })
+                    logger.warning(f"Found exposed file: {url}")
+            except:
+                pass
+        
+        for path in admin_paths:
+            url = urljoin(target, path)
+            try:
+                response = requests.get(url, timeout=5, verify=False, allow_redirects=False)
+                if response.status_code in [200, 301, 302]:
+                    findings.append({
+                        'title': f'Admin Panel Found: {path}',
+                        'severity': 'info',
+                        'description': f'Admin panel accessible at {path}',
+                        'url': url,
+                        'remediation': 'Ensure admin panel has strong authentication',
+                        'cwe': 'CWE-200'
+                    })
+                    logger.info(f"Found admin panel: {url}")
+            except:
+                pass
+        
+        return findings
+    
+    def check_information_disclosure(self, target: str) -> List[Dict[str, Any]]:
+        """Check for information disclosure vulnerabilities"""
+        findings = []
+        
+        try:
+            response = requests.get(target, timeout=10, verify=False)
+            content = response.text.lower()
+            
+            # Check for common disclosure patterns
+            disclosure_patterns = {
+                'mysql': 'MySQL database referenced in page',
+                'postgresql': 'PostgreSQL database referenced',
+                'mongodb': 'MongoDB referenced',
+                'redis': 'Redis cache referenced',
+                'aws': 'AWS services referenced',
+                'api key': 'Potential API key in HTML',
+                'private key': 'Potential private key in HTML',
+                'secret': 'Potential secret value in HTML',
+                'password': 'Password reference in HTML',
+                'token': 'Token reference in HTML'
+            }
+            
+            for pattern, description in disclosure_patterns.items():
+                if pattern in content:
+                    findings.append({
+                        'title': 'Information Disclosure in HTML',
+                        'severity': 'low',
+                        'description': description,
+                        'remediation': 'Remove sensitive information from HTML source',
+                        'cwe': 'CWE-200'
+                    })
+            
+            # Check for stack traces or error messages
+            error_patterns = [
+                'stack trace',
+                'exception',
+                'error in',
+                'warning:',
+                'fatal error',
+                'line [0-9]+ in'
+            ]
+            
+            for pattern in error_patterns:
+                if re.search(pattern, content, re.IGNORECASE):
+                    findings.append({
+                        'title': 'Error Message Disclosure',
+                        'severity': 'medium',
+                        'description': 'Application error messages visible to users',
+                        'remediation': 'Implement proper error handling and disable debug mode',
+                        'cwe': 'CWE-209'
+                    })
+                    break
+            
+        except Exception as e:
+            logger.error(f"Error checking information disclosure: {str(e)}")
+        
+        return findings
+    
+    def test_xss_basic(self, target: str) -> List[Dict[str, Any]]:
+        """Basic XSS detection (very simplified)"""
+        findings = []
+        
+        # This is a VERY basic test - production scanners are much more sophisticated
+        xss_payloads = [
+            '<script>alert(1)</script>',
+            '"><script>alert(1)</script>',
+            '<img src=x onerror=alert(1)>'
+        ]
+        
+        try:
+            # Parse URL to find parameters
+            parsed = urlparse(target)
+            if '?' in target:
+                base_url = target.split('?')[0]
+                logger.info(f"Testing for XSS vulnerabilities on {base_url}")
+                
+                # Test each parameter with payloads
+                # This is simplified - real scanners would be much more thorough
+                for payload in xss_payloads:
+                    test_url = f"{base_url}?test={payload}"
+                    try:
+                        response = requests.get(test_url, timeout=5, verify=False)
+                        if payload in response.text:
+                            findings.append({
+                                'title': 'Potential XSS Vulnerability',
+                                'severity': 'high',
+                                'description': 'User input may be reflected without proper sanitization',
+                                'url': test_url,
+                                'remediation': 'Implement proper input validation and output encoding',
+                                'cwe': 'CWE-79'
+                            })
+                            break
+                    except:
+                        pass
+        
+        except Exception as e:
+            logger.error(f"Error testing XSS: {str(e)}")
+        
+        return findings
+    
+    def prioritize_findings(self, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort findings by severity"""
+        severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+        return sorted(findings, key=lambda x: severity_order.get(x.get('severity', 'info'), 4))
