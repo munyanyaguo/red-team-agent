@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Functions
 print_header() {
     echo -e "${BLUE}"
-    echo "╔══════════════════════════════════════════════════════╗"
+    echo "╔══════════════════════════════════════════════════════════╗"
     echo "║                                                          ║"
     echo "║         RED TEAM AGENT - AUTOMATED SETUP                 ║"
     echo "║                                                          ║"
@@ -45,7 +45,7 @@ print_header
 echo "This script will:"
 echo "  1. Check prerequisites"
 echo "  2. Create virtual environment"
-echo "  3. Install Python dependencies"
+echo "  3. Install Python dependencies (using Pipenv)"
 echo "  4. Start Docker services"
 echo "  5. Configure environment"
 echo "  6. Initialize database"
@@ -108,6 +108,11 @@ print_step "Step 2: Creating Virtual Environment"
 if [ -d "venv" ]; then
     print_warning "Virtual environment already exists. Skipping..."
 else
+    # Check if python3-venv is installed for Debian/Ubuntu
+    if [[ "$OSTYPE" == "linux-gnu"* ]] && ! dpkg -s python3-venv &> /dev/null; then
+        print_warning "python3-venv is not installed. Attempting to install..."
+        sudo apt-get update && sudo apt-get install -y python3-venv || print_error "Failed to install python3-venv. Please install it manually." && exit 1
+    fi
     python3 -m venv venv
     print_success "Virtual environment created"
 fi
@@ -115,11 +120,14 @@ fi
 # Activate virtual environment
 source venv/bin/activate
 
-# Step 3: Install Python Dependencies
-print_step "Step 3: Installing Python Dependencies"
+# Step 3: Install Python Dependencies (using Pipenv)
+print_step "Step 3: Installing Python Dependencies (using Pipenv)"
 
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install pipenv # Install pipenv itself
+
+# Use pipenv to install dependencies
+pipenv install --deploy --system
 
 print_success "Python dependencies installed"
 
@@ -210,14 +218,15 @@ print_step "Step 7: Running Basic Tests (Optional)"
 read -p "Run basic tests? (y/n) " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    pip install pytest pytest-cov
+    # Ensure pytest and pytest-cov are installed via pipenv
+    pipenv install pytest pytest-cov --dev --system
     pytest test_basic.py -v --tb=short || print_warning "Some tests failed (this is okay for first setup)"
 fi
 
 # Final Summary
 echo ""
 echo -e "${GREEN}"
-echo "╔══════════════════════════════════════════════════════╗"
+echo "╔══════════════════════════════════════════════════════════╗"
 echo "║                                                          ║"
 echo "║              SETUP COMPLETED SUCCESSFULLY! 🎉            ║"
 echo "║                                                          ║"
@@ -229,18 +238,17 @@ echo "Next Steps:"
 echo ""
 echo "1. Edit .env and add your Anthropic API key:"
 echo -e "   ${YELLOW}nano .env${NC}"
-
+echo ""
 echo "2. Start the application:"
 echo -e "   ${YELLOW}python run.py${NC}"
-
+echo ""
 echo "3. In a new terminal, run the example:"
 echo -e "   ${YELLOW}python example_usage.py${NC}"
-
+echo ""
 echo "4. Access n8n workflow editor:"
 echo -e "   ${YELLOW}http://localhost:5678${NC}"
 echo "   Username: admin"
 echo "   Password: change-this-password"
-
 echo ""
 echo "Services Status:"
 docker-compose ps
@@ -249,7 +257,7 @@ echo ""
 echo "Useful commands:"
 echo "  - View logs: tail -f logs/redteam.log"
 echo "  - Stop services: docker-compose down"
-- Database access: docker exec -it redteam_postgres psql -U redteam -d redteam_db"
-
+echo "  - Database access: docker exec -it redteam_postgres psql -U redteam -d redteam_db"
+echo ""
 print_warning "Remember: Always get proper authorization before security testing!"
 echo ""

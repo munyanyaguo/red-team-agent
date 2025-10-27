@@ -12,10 +12,11 @@ class VulnerabilityScanner:
     def __init__(self):
         self.findings = []
         
-    def scan(self, target: str, scan_type: str = 'basic') -> Dict[str, Any]:
+    def scan(self, target: str, scan_type: str = 'basic', recon_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Run vulnerability scan on target
         scan_type: basic, web, network
+        recon_data: optional reconnaissance data
         """
         logger.info(f"Starting {scan_type} vulnerability scan on {target}")
         
@@ -33,7 +34,7 @@ class VulnerabilityScanner:
             
             if scan_type == 'network' or scan_type == 'basic':
                 # Network-level checks
-                results['findings'].extend(self.network_vulnerability_scan(target))
+                results['findings'].extend(self.network_vulnerability_scan(target, recon_data))
             
             logger.info(f"Scan completed. Found {len(results['findings'])} potential issues")
             
@@ -67,18 +68,54 @@ class VulnerabilityScanner:
         
         # Basic XSS test
         findings.extend(self.test_xss_basic(target))
+
+        # Basic SQLi test
+        findings.extend(self.test_sql_injection(target))
+
+        # Check for directory listing
+        findings.extend(self.check_directory_listing(target))
+
+        # Check for outdated server software
+        findings.extend(self.check_outdated_server(target))
+
+        # Basic CSRF test
+        findings.extend(self.test_csrf(target))
+
+        # Basic SSRF test
+        findings.extend(self.test_ssrf(target))
         
         return findings
     
-    def network_vulnerability_scan(self, target: str) -> List[Dict[str, Any]]:
+    def network_vulnerability_scan(self, target: str, recon_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """Scan for network-level vulnerabilities"""
         logger.info(f"Running network vulnerability scan on {target}")
         
         findings = []
         
-        # This would integrate with tools like nmap, openvas, etc.
-        # For now, basic checks
-        
+        if not recon_data or 'port_scan' not in recon_data or 'open_ports' not in recon_data['port_scan']:
+            logger.warning("No port scan data available for network vulnerability scan.")
+            return findings
+
+        risky_ports = {
+            21: "FTP",
+            23: "Telnet",
+            5432: "PostgreSQL",
+            3306: "MySQL",
+            27017: "MongoDB"
+        }
+
+        open_ports = recon_data['port_scan']['open_ports']
+
+        for port, service in risky_ports.items():
+            if port in open_ports:
+                findings.append({
+                    'title': f'Potentially Insecure Service Exposed: {service}',
+                    'severity': 'medium',
+                    'description': f'The {service} port ({port}) is open to the internet. This service can be a target for brute-force attacks or may have known vulnerabilities.',
+                    'remediation': f'Ensure that {service} is not exposed to the internet unless necessary. If it must be exposed, use strong credentials and keep the service updated.',
+                    'cwe': 'CWE-200'
+                })
+
         return findings
     
     def check_ssl_tls(self, target: str) -> List[Dict[str, Any]]:
@@ -359,6 +396,111 @@ class VulnerabilityScanner:
         
         return findings
     
+    def test_sql_injection(self, target: str) -> List[Dict[str, Any]]:
+        """Basic SQL injection detection"""
+        findings = []
+        sql_payloads = ["'", """, " OR 1=1 --"]
+        error_patterns = ["sql syntax", "mysql", "unclosed quotation mark"]
+
+        if '?' in target:
+            base_url, query_string = target.split('?', 1)
+            params = query_string.split('&')
+            for i, param in enumerate(params):
+                for payload in sql_payloads:
+                    test_params = params[:]
+                    test_params[i] = param + payload
+                    test_url = f"{base_url}?{'&'.join(test_params)}"
+                    try:
+                        response = requests.get(test_url, timeout=5, verify=False)
+                        for error in error_patterns:
+                            if error in response.text.lower():
+                                findings.append({
+                                    'title': 'Potential SQL Injection',
+                                    'severity': 'critical',
+                                    'description': f'A potential SQL injection vulnerability was found in parameter {i+1}.',
+                                    'url': test_url,
+                                    'remediation': 'Use parameterized queries to prevent SQL injection.',
+                                    'cwe': 'CWE-89'
+                                })
+                                break
+                    except:
+                        pass
+        return findings
+
+    def check_directory_listing(self, target: str) -> List[Dict[str, Any]]:
+        """Check for directory listing vulnerabilities"""
+        findings = []
+        try:
+            response = requests.get(target, timeout=5, verify=False)
+            if "index of /" in response.text.lower():
+                findings.append({
+                    'title': 'Directory Listing Enabled',
+                    'severity': 'medium',
+                    'description': 'The web server is configured to show a directory listing, which can expose sensitive information.',
+                    'url': target,
+                    'remediation': 'Disable directory listing on the web server.',
+                    'cwe': 'CWE-548'
+                })
+        except:
+            pass
+        return findings
+
+    def check_outdated_server(self, target: str) -> List[Dict[str, Any]]:
+        """Check for outdated server software from headers"""
+        findings = []
+        try:
+            response = requests.get(target, timeout=5, verify=False)
+            server_header = response.headers.get('Server')
+            if server_header:
+                # This is a very basic check. A real implementation would use a database of vulnerable versions.
+                outdated_versions = {
+                    "apache": ["2.2.", "2.0.", "1."],
+                    "nginx": ["1.1", "1.0", "0."],
+                    "iis": ["7.0", "6.0", "5.0"]
+                }
+                for server, versions in outdated_versions.items():
+                    if server in server_header.lower():
+                        for version in versions:
+                            if version in server_header:
+                                findings.append({
+                                    'title': 'Potentially Outdated Server Software',
+                                    'severity': 'high',
+                                    'description': f'The server is running {server_header}, which may be outdated and have known vulnerabilities.',
+                                    'remediation': 'Update the web server software to the latest version.',
+                                    'cwe': 'CWE-937'
+                                })
+                                break
+        except:
+            pass
+        return findings
+
+    def test_csrf(self, target: str) -> List[Dict[str, Any]]:
+        """Basic CSRF check (check for anti-CSRF tokens in forms)"""
+        findings = []
+        try:
+            response = requests.get(target, timeout=5, verify=False)
+            forms = re.findall(r'(<form.*?</form>)', response.text, re.IGNORECASE | re.DOTALL)
+            for form in forms:
+                if "post" in form.lower() and "csrf" not in form.lower() and "token" not in form.lower():
+                    findings.append({
+                        'title': 'Potential CSRF Vulnerability',
+                        'severity': 'medium',
+                        'description': 'A form was found without a clear anti-CSRF token, which could make it vulnerable to Cross-Site Request Forgery.',
+                        'remediation': 'Implement anti-CSRF tokens in all state-changing forms.',
+                        'cwe': 'CWE-352'
+                    })
+                    break
+        except:
+            pass
+        return findings
+
+    def test_ssrf(self, target: str) -> List[Dict[str, Any]]:
+        """Basic SSRF check"""
+        findings = []
+        # This is a placeholder for a more complex check.
+        # A real SSRF check would involve finding parameters that take URLs and trying to access internal services.
+        return findings
+
     def prioritize_findings(self, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Sort findings by severity"""
         severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}

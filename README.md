@@ -20,9 +20,11 @@ A comprehensive AI-powered security testing platform built with Flask, featuring
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.12 or higher
 - Docker & Docker Compose (for databases)
 - nmap installed on your system
+- **pipenv** for dependency management
+- **Google Chrome/Chromium** and **ChromeDriver** (for Wappalyzer technology detection)
 - Anthropic API key (for AI features)
 
 ### Step 1: Clone and Setup
@@ -32,12 +34,15 @@ A comprehensive AI-powered security testing platform built with Flask, featuring
 mkdir red-team-agent
 cd red-team-agent
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create virtual environment and install dependencies using Pipenv
+# First, install pipenv if you don't have it:
+pip install pipenv
 
-# Install dependencies
-pip install -r requirements.txt
+# Then, install project dependencies
+pipenv install --deploy --system
+
+# Activate the virtual environment
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ### Step 2: Configure Environment
@@ -54,7 +59,10 @@ nano .env  # or use your preferred editor
 ANTHROPIC_API_KEY=your-api-key-here
 
 # Database (will use PostgreSQL from Docker)
-DATABASE_URL=postgresql://redteam:securepassword @localhost:5432/redteam_db
+DATABASE_URL=postgresql://redteam:securepassword@postgres:5432/redteam_db
+
+# Redis (for caching, future features)
+REDIS_URL=redis://localhost:6379/0
 ```
 
 ### Step 3: Start Database Services
@@ -139,6 +147,27 @@ brew install nmap
 **Windows:**
 Download from https://nmap.org/download.html
 
+### Installing Wappalyzer Dependencies
+
+For `python-wappalyzer` to function, you need a browser (like Google Chrome or Chromium) and its corresponding WebDriver (like ChromeDriver) installed and accessible in your system\'s PATH.
+
+**Ubuntu/Debian (for Chromium and ChromeDriver):**
+```bash
+sudo apt-get update
+sudo apt-get install -y chromium-browser chromium-chromedriver
+```
+
+**macOS (for Chrome and ChromeDriver):**
+```bash
+brew install --cask google-chrome
+brew install chromedriver
+```
+
+**Windows:**
+1. Download Google Chrome: https://www.google.com/chrome/
+2. Download ChromeDriver matching your Chrome version: https://chromedriver.chromium.org/downloads
+3. Extract `chromedriver.exe` and place it in a directory included in your system\'s PATH.
+
 ### Database Setup
 
 **Option 1: Docker (Recommended)**
@@ -156,7 +185,7 @@ sudo -u postgres createdb redteam_db
 sudo -u postgres createuser redteam -P
 
 # Update .env with your credentials
-DATABASE_URL=postgresql://redteam:yourpassword @localhost:5432/redteam_db
+DATABASE_URL=postgresql://redteam:yourpassword@localhost:5432/redteam_db
 ```
 
 ### API Keys Setup
@@ -400,7 +429,7 @@ GET /api/stats
 ### Run Tests
 ```bash
 # Install test dependencies
-pip install pytest pytest-cov
+pipenv install pytest pytest-cov --dev --system
 
 # Run tests
 pytest
@@ -462,6 +491,12 @@ lsof -ti:5000 | xargs kill -9
 chmod -R 755 logs/ reports/ data/
 ```
 
+**Issue: "Wappalyzer not detecting technologies"**
+```bash
+# Ensure Chrome/Chromium and ChromeDriver are installed and in PATH
+# Check ChromeDriver version compatibility with your browser
+```
+
 ---
 
 ## 📁 Project Structure
@@ -485,9 +520,13 @@ red-team-agent/
 ├── tests/                        # Test files (create this)
 ├── .env                         # Environment variables
 ├── requirements.txt             # Python dependencies
-├── docker-compose.yml           # Docker services
+├── docker-compose.yml           # Docker services setup
 ├── run.py                       # Application entry point
-└── README.md                    # This file
+├── example_usage.py             # Complete usage example
+├── test_basic.py                # Test suite
+├── setup.sh                     # Automated setup script
+├── README.md                    # This file
+└── tutorial.md                  # Step-by-step tutorial
 ```
 
 ---
@@ -515,7 +554,7 @@ red-team-agent/
 
 1. **Use HTTPS only**
    - Deploy behind nginx with SSL
-   - Use Let's Encrypt for certificates
+   - Use Let\'s Encrypt for certificates
 
 2. **Implement authentication**
    - Add JWT tokens or OAuth
@@ -543,7 +582,7 @@ red-team-agent/
 
 ### Understanding the Code
 
-**Start here if you're new:**
+**Start here if you\'re new:**
 1. Read `app/__init__.py` - See how Flask app is created
 2. Read `app/models.py` - Understand database structure
 3. Read `app/routes.py` - See API endpoints
@@ -627,28 +666,25 @@ def run_nikto(target):
 
 ```bash
 # Check for outdated packages
-pip list --outdated
+pipenv update --outdated
 
 # Update specific package
-pip install --upgrade package-name
+pipenv update package-name
 
-# Update all packages (use with caution)
-pip install --upgrade -r requirements.txt
+# Update all packages
+pipenv update
 ```
 
 ### Database Migrations
 
 ```bash
 # Install Flask-Migrate
-pip install Flask-Migrate
+pipenv install flask-migrate --system
 
 # Initialize migrations
 flask db init
 
 # Create migration
-flask db migrate -m "Add new field"
-
-# Apply migration
 flask db migrate -m "Add new field"
 
 # Apply migration
@@ -684,28 +720,33 @@ tar -xzf redteam-backup-20240101.tar.gz
 
 1. Create `Dockerfile`:
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.12-slim # Updated Python version
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     nmap \
+    chromium-browser \
+    chromium-chromedriver \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install pipenv
+RUN pip install pipenv
+
+# Copy Pipfile and Pipfile.lock and install dependencies
+COPY Pipfile Pipfile.lock ./
+RUN pipenv install --system --deploy --ignore-pipfile
 
 # Copy application
-COPY . .
+COPY . . 
 
 # Create directories
 RUN mkdir -p logs reports data
 
 EXPOSE 5000
 
-CMD ["python", "run.py"]
+CMD ["pipenv", "run", "gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "run:app"]
 ```
 
 2. Update `docker-compose.yml`:
@@ -716,13 +757,24 @@ app:
   ports:
     - "5000:5000"
   environment:
-    - DATABASE_URL=postgresql://redteam:securepassword @postgres:5432/redteam_db
+    - FLASK_ENV=development # Or production
+    - SECRET_KEY=your-flask-secret-key # CHANGE THIS IN PRODUCTION
+    - DATABASE_URL=postgresql://redteam:securepassword@postgres:5432/redteam_db # Use service name 'postgres'
+    - REDIS_URL=redis://redis:6379/0 # Use service name 'redis'
+    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} # Passed from host .env
+    - OPENAI_API_KEY=${OPENAI_API_KEY} # Passed from host .env
+    - MAX_SCAN_TIMEOUT=300
+    - ENABLE_EXPLOITATION=false
+    - LOG_LEVEL=INFO
+  volumes:
+    - .:/app # Mount current directory into container
+    - ./reports:/app/reports # Ensure reports persist on host
+    - ./logs:/app/logs # Ensure logs persist on host
+    - ./data:/app/data # Ensure data persists on host
   depends_on:
     - postgres
     - redis
-  volumes:
-    - ./reports:/app/reports
-    - ./logs:/app/logs
+  restart: unless-stopped
 ```
 
 3. Deploy:
@@ -734,19 +786,19 @@ docker-compose up --build -d
 
 1. Install system dependencies
 sudo apt-get update
-sudo apt-get install -y python3.11 python3-pip nginx nmap
+sudo apt-get install -y python3.12 python3.12-venv python3-pip nginx chromium-browser chromium-chromedriver
 
 2. Clone repository
 git clone https://github.com/yourusername/red-team-agent.git
 cd red-team-agent
 
-3. Create virtual environment
-python3 -m venv venv
+3. Create virtual environment and install pipenv
+python3.12 -m venv venv
 source venv/bin/activate
+pip install pipenv
 
 4. Install dependencies
-pip install -r requirements.txt
-pip install gunicorn
+pipenv install --deploy --system
 
 5. Configure environment
 cp .env.example .env
@@ -764,8 +816,8 @@ After=network.target postgresql.service
 [Service]
 User=redteam
 WorkingDirectory=/home/redteam/red-team-agent
-Environment="PATH=/home/redteam/red-team-agent/venv/bin"
-ExecStart=/home/redteam/red-team-agent/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 run:app
+Environment="PATH=/home/redteam/red-team-agent/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/redteam/red-team-agent/venv/bin/pipenv run gunicorn -w 4 -b 0.0.0.0:5000 run:app
 
 [Install]
 WantedBy=multi-user.target
@@ -815,7 +867,7 @@ sudo systemctl reload nginx
 
 3. **Common solutions:**
    - Clear database: `docker-compose down -v && docker-compose up -d`
-   - Reinstall dependencies: `pip install -r requirements.txt --force-reinstall`
+   - Reinstall dependencies: `pipenv install --deploy --system`
    - Check permissions: `ls -la logs/ reports/ data/`
 
 ### Contributing
@@ -876,6 +928,7 @@ Built with:
 - **Nmap** - Network scanning
 - **n8n** - Workflow automation
 - **PostgreSQL** - Database
+- **Wappalyzer** - Technology detection
 
 Inspired by security tools:
 - Metasploit

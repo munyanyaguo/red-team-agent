@@ -4,6 +4,7 @@ from app.modules.recon import ReconEngine
 from app.modules.scanner import VulnerabilityScanner
 from app.modules.ai_agent import AISecurityAgent
 from app.modules.reporter import ReportGenerator
+from app.modules.exploitation import ExploitationEngine
 import json
 import logging
 from datetime import datetime, timezone # Added timezone
@@ -19,6 +20,7 @@ api_bp = Blueprint('api', __name__)
 # Initialize modules
 recon_engine = ReconEngine()
 vuln_scanner = VulnerabilityScanner()
+exploitation_engine = ExploitationEngine()
 ai_agent = None  # Will be initialized when needed
 report_generator = None  # Will be initialized when needed
 
@@ -275,8 +277,17 @@ def run_vulnerability_scan():
         
         logger.info(f"Starting vulnerability scan on {target_value}")
         
+        # Fetch recon data for the target
+        recon_data = None
+        if engagement_id:
+            target = Target.query.filter_by(engagement_id=engagement_id, value=target_value).first()
+            if target:
+                scan_result = ScanResult.query.filter_by(target_id=target.id, scan_type='recon').first()
+                if scan_result and scan_result.parsed_results:
+                    recon_data = json.loads(scan_result.parsed_results)
+
         # Run vulnerability scan
-        scan_results = vuln_scanner.scan(target_value, scan_type)
+        scan_results = vuln_scanner.scan(target_value, scan_type, recon_data=recon_data)
         
         findings = scan_results.get('findings', [])
         
@@ -371,7 +382,7 @@ def run_full_scan():
         
         # Step 2: Vulnerability Scanning
         logger.info("Phase 2: Vulnerability Scanning")
-        vuln_results = vuln_scanner.scan(target_value, 'web')
+        vuln_results = vuln_scanner.scan(target_value, 'web', recon_data=recon_results)
         results['vulnerabilities'] = vuln_results
         
         # Save to database
@@ -818,6 +829,44 @@ def ai_generate_attack_strategy():
         
     except Exception as e:
         logger.error(f"Error generating attack strategy: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ============================================================================
+# EXPLOITATION ENDPOINTS
+# ============================================================================
+
+@api_bp.route('/exploit', methods=['POST'])
+def run_exploit():
+    """Attempt to exploit a finding"""
+    try:
+        data = request.get_json()
+        finding_id = data.get('finding_id')
+
+        if not finding_id:
+            return jsonify({'success': False, 'error': 'Finding ID is required'}), 400
+
+        finding = Finding.query.get_or_404(finding_id)
+
+        logger.info(f"Attempting to exploit finding {finding_id}")
+
+        # Run exploitation
+        exploit_result = exploitation_engine.run_exploitation(finding.to_dict())
+
+        # Update finding with exploitation result
+        if exploit_result.get('success'):
+            finding.status = 'exploited'
+            finding.evidence = json.dumps(exploit_result.get('details', {}))
+            db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Exploitation attempt completed',
+            'result': exploit_result
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error during exploitation: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ============================================================================

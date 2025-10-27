@@ -27,20 +27,8 @@ def create_app(config_name='default'):
     from .routes import api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
 
-    @app.route('/')
-    def index():
-        return jsonify({
-            "name": "Red Team Agent API",
-            "version": "1.0.0",
-            "status": "running",
-            "endpoints": {
-                "engagements": "/api/engagements",
-                "scan": "/api/scan",
-                "findings": "/api/findings",
-                "reports": "/api/reports",
-                "ai": "/api/ai"
-            }
-        })
+    from .web_routes import web_bp
+    app.register_blueprint(web_bp)
 
     @app.route('/health')
     def health_check():

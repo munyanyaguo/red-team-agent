@@ -39,14 +39,32 @@ If you prefer to understand each step:
 
 **1. Install Prerequisites:**
 
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y python3.11 python3-pip nmap docker.io docker-compose
+- Python 3.12 or higher
+- Docker & Docker Compose (for databases)
+- nmap installed on your system
+- **pipenv** for dependency management
+- **Google Chrome/Chromium** and **ChromeDriver** (for Wappalyzer technology detection)
 
-# macOS
-brew install python@3.11 nmap docker docker-compose
+**Ubuntu/Debian (Example):**
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3-pip nmap docker.io docker-compose chromium-browser chromium-chromedriver
 ```
+
+**macOS (Example):**
+```bash
+brew install python@3.12 nmap docker docker-compose
+brew install --cask google-chrome
+brew install chromedriver
+```
+
+**Windows:**
+- Install Python 3.12: https://www.python.org/downloads/
+- Install Docker Desktop: https://www.docker.com/products/docker-desktop/
+- Install nmap: https://nmap.org/download.html
+- Install Google Chrome: https://www.google.com/chrome/
+- Download ChromeDriver matching your Chrome version: https://chromedriver.chromium.org/downloads
+- Extract `chromedriver.exe` and place it in a directory included in your system's PATH.
 
 **2. Create Project and Virtual Environment:**
 
@@ -54,16 +72,18 @@ brew install python@3.11 nmap docker docker-compose
 mkdir red-team-agent
 cd red-team-agent
 
-python3 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-**3. Install Python Dependencies:**
-
-Create `requirements.txt` with the provided content, then:
+**3. Install Python Dependencies (using Pipenv):**
 
 ```bash
-pip install -r requirements.txt
+# Install pipenv if you don't have it
+pip install pipenv
+
+# Install project dependencies
+pipenv install --deploy --system
 ```
 
 **4. Start Docker Services:**
@@ -77,6 +97,18 @@ docker-compose up -d
 ```bash
 cp .env.example .env
 nano .env  # Edit and add your API keys
+```
+
+**Example .env content:**
+```bash
+# Get your Anthropic API key from: https://console.anthropic.com/
+ANTHROPIC_API_KEY=your-api-key-here
+
+# Database (will use PostgreSQL from Docker)
+DATABASE_URL=postgresql://redteam:securepassword@postgres:5432/redteam_db
+
+# Redis (for caching, future features)
+REDIS_URL=redis://localhost:6379/0
 ```
 
 **6. Initialize Database:**
@@ -95,6 +127,7 @@ docker-compose ps
 # - redteam_postgres (running)
 # - redteam_redis (running)
 # - redteam_n8n (running)
+# - redteam_app (running) - if you've set up the Docker deployment
 ```
 
 ---
@@ -121,8 +154,8 @@ Open a new terminal:
 # Health check
 curl http://localhost:5000/health
 
-# Expected output:
-# {"status":"healthy","message":"Red Team Agent is running"}
+# Expected output: (may vary slightly)
+# {"status":"healthy","message":"Red Team Agent is running","database":"connected","timestamp":"..."}
 ```
 
 ### Access the Web Interface
@@ -142,12 +175,7 @@ Let's perform a complete security assessment on a safe test target.
 curl -X POST http://localhost:5000/api/engagements \
   -H "Content-Type: application/json" \
   -d 
-  {
-    "name": "My First Assessment",
-    "client": "Learning Labs",
-    "type": "internal",
-    "scope": ["testphp.vulnweb.com"]
-  }
+'{ "name": "My First Assessment", "client": "Learning Labs", "type": "internal", "scope": ["testphp.vulnweb.com"] }'
 ```
 
 **Response:**
@@ -170,19 +198,18 @@ curl -X POST http://localhost:5000/api/engagements \
 ```bash
 curl -X POST http://localhost:5000/api/scan/recon \
   -H "Content-Type: application/json" \
-  -d 
-  {
+  -d '{ 
     "target": "testphp.vulnweb.com",
     "engagement_id": 1,
     "ai_analysis": true
-  }
+  }'
 ```
 
 **What's happening:**
 - DNS enumeration
 - Subdomain discovery
 - Port scanning
-- Technology detection
+- Technology detection (using Wappalyzer)
 - AI analysis of attack surface
 
 **This will take 2-3 minutes.** You'll get results like:
@@ -215,13 +242,12 @@ curl -X POST http://localhost:5000/api/scan/recon \
 ```bash
 curl -X POST http://localhost:5000/api/scan/vulnerabilities \
   -H "Content-Type: application/json" \
-  -d 
-  {
+  -d '{ 
     "target": "http://testphp.vulnweb.com",
     "engagement_id": 1,
     "scan_type": "web",
     "ai_analysis": true
-  }
+  }'
 ```
 
 **What's happening:**
@@ -272,29 +298,26 @@ Generate all three report types:
 # Executive Report (for management)
 curl -X POST http://localhost:5000/api/reports/generate \
   -H "Content-Type: application/json" \
-  -d 
-  {
+  -d '{ 
     "engagement_id": 1,
     "report_type": "executive"
-  }
+  }'
 
 # Technical Report (for security team)
 curl -X POST http://localhost:5000/api/reports/generate \
   -H "Content-Type: application/json" \
-  -d 
-  {
+  -d '{ 
     "engagement_id": 1,
     "report_type": "technical"
-  }
+  }'
 
 # Remediation Guide (for developers)
 curl -X POST http://localhost:5000/api/reports/generate \
   -H "Content-Type: application/json" \
-  -d 
-  {
+  -d '{ 
     "engagement_id": 1,
     "report_type": "remediation"
-  }
+  }'
 ```
 
 **View your reports:**
@@ -423,10 +446,10 @@ curl -X POST http://localhost:5000/api/ai/explain/vulnerability \
 curl -X POST http://localhost:5000/api/engagements/1/targets \
   -H "Content-Type: application/json" \
   -d 
-  {
+'{ 
     "target": "your-authorized-target.com",
     "priority": 1
-  }
+  }'
 
 # Validate target first
 curl -X POST http://localhost:5000/api/validate-target \
@@ -519,12 +542,15 @@ print('API key is valid!')
 "
 ```
 
-### "nmap not found"
+### "nmap not found" (or Wappalyzer issues)
 
 ```bash
 # Install nmap
 sudo apt-get install nmap  # Linux
 brew install nmap           # macOS
+
+# For Wappalyzer, ensure Chrome/Chromium and ChromeDriver are installed and in PATH
+# Check ChromeDriver version compatibility with your browser
 ```
 
 ---
@@ -541,7 +567,7 @@ python run.py
 python example_usage.py
 
 # Run tests
-pytest test_basic.py -v
+pipenv run pytest test_basic.py -v
 
 # View logs
 tail -f logs/redteam.log
@@ -571,6 +597,7 @@ curl http://localhost:5000/api/stats
 ```
 
 ---
+
 
 ## 🎉 Congratulations!
 
