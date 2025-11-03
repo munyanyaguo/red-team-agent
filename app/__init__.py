@@ -31,7 +31,7 @@ def create_app(config_name='default'):
     app.register_blueprint(api_bp, url_prefix='/api')
 
     from .web_routes import web_bp
-    app.register_blueprint(web_bp, url_prefix='/', template_folder='../UI')
+    app.register_blueprint(web_bp, url_prefix='/')
 
     from .modules.scheduler import start_scheduler
     start_scheduler(app)
