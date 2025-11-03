@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import logging
 from typing import Dict, List, Any, Optional
 from bs4 import BeautifulSoup
+from app.modules.learning_engine import LearningEngine
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class ReconEngine:
     def __init__(self):
         self.nm = nmap.PortScanner()
         self.dns_resolver = dns.resolver.Resolver()
+        self.learning_engine = LearningEngine()
     
     def run_full_recon(self, target: str) -> Dict[str, Any]:
         """Run complete reconnaissance on a target and return dictionary with all findings"""

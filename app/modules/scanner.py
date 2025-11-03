@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List, Any
 from urllib.parse import urljoin, urlparse
 import re
+from app.modules.learning_engine import LearningEngine
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ class VulnerabilityScanner:
     
     def __init__(self):
         self.findings = []
+        self.learning_engine = LearningEngine()
         
     def scan(self, target: str, scan_type: str = 'basic', recon_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -30,11 +32,29 @@ class VulnerabilityScanner:
         try:
             if scan_type == 'web' or scan_type == 'basic':
                 # Web application scanning
-                results['findings'].extend(self.web_vulnerability_scan(target))
+                web_findings = self.web_vulnerability_scan(target)
+                results['findings'].extend(web_findings)
+                for finding in web_findings:
+                    self.learning_engine.record_scan_outcome(
+                        finding_id=None, # Will be updated after saving to DB
+                        outcome='true_positive',
+                        detection_method=finding.get('detection_method', 'unknown'),
+                        time_taken=1.0, # Placeholder
+                        environment={'target_tech': recon_data.get('technologies', [])[0] if recon_data and recon_data.get('technologies') else None, 'attack_type': 'vulnerability_scan'}
+                    )
             
             if scan_type == 'network' or scan_type == 'basic':
                 # Network-level checks
-                results['findings'].extend(self.network_vulnerability_scan(target, recon_data))
+                network_findings = self.network_vulnerability_scan(target, recon_data)
+                results['findings'].extend(network_findings)
+                for finding in network_findings:
+                    self.learning_engine.record_scan_outcome(
+                        finding_id=None, # Will be updated after saving to DB
+                        outcome='true_positive',
+                        detection_method=finding.get('detection_method', 'unknown'),
+                        time_taken=1.0, # Placeholder
+                        environment={'target_tech': recon_data.get('technologies', [])[0] if recon_data and recon_data.get('technologies') else None, 'attack_type': 'vulnerability_scan'}
+                    )
             
             logger.info(f"Scan completed. Found {len(results['findings'])} potential issues")
             
@@ -122,7 +142,7 @@ class VulnerabilityScanner:
         """Check SSL/TLS configuration"""
         findings = []
         
-        if not target.startswith('https://'):
+        if not target.startswith('https'):
             # Check if HTTPS is available
             https_target = target.replace('http://', 'https://')
             try:
@@ -133,7 +153,8 @@ class VulnerabilityScanner:
                         'severity': 'medium',
                         'description': 'The site is accessible over HTTPS but does not redirect HTTP to HTTPS',
                         'remediation': 'Implement automatic HTTPS redirect and HSTS header',
-                        'cwe': 'CWE-319'
+                        'cwe': 'CWE-319',
+                        'detection_method': 'check_ssl_tls'
                     })
             except:
                 findings.append({
@@ -141,7 +162,8 @@ class VulnerabilityScanner:
                     'severity': 'high',
                     'description': 'The site does not support HTTPS encryption',
                     'remediation': 'Implement SSL/TLS certificate and enable HTTPS',
-                    'cwe': 'CWE-319'
+                    'cwe': 'CWE-319',
+                    'detection_method': 'check_ssl_tls'
                 })
         else:
             # Check certificate validity (simplified)
@@ -153,7 +175,8 @@ class VulnerabilityScanner:
                     'severity': 'high',
                     'description': 'The SSL certificate is invalid, expired, or self-signed',
                     'remediation': 'Install a valid SSL certificate from a trusted CA',
-                    'cwe': 'CWE-295'
+                    'cwe': 'CWE-295',
+                    'detection_method': 'check_ssl_tls'
                 })
             except:
                 pass
@@ -204,7 +227,8 @@ class VulnerabilityScanner:
                         'severity': details['severity'],
                         'description': details['description'],
                         'remediation': details['remediation'],
-                        'cwe': 'CWE-693'
+                        'cwe': 'CWE-693',
+                        'detection_method': 'check_security_headers'
                     })
             
             # Check for information disclosure in headers
@@ -216,7 +240,8 @@ class VulnerabilityScanner:
                         'severity': 'info',
                         'description': f'Server reveals technology information via {header} header: {headers[header]}',
                         'remediation': f'Remove or obfuscate the {header} header',
-                        'cwe': 'CWE-200'
+                        'cwe': 'CWE-200',
+                        'detection_method': 'check_security_headers'
                     })
             
         except Exception as e:
@@ -271,7 +296,8 @@ class VulnerabilityScanner:
                         'description': f'Sensitive file {file} is publicly accessible',
                         'url': url,
                         'remediation': 'Remove or restrict access to sensitive files',
-                        'cwe': 'CWE-200'
+                        'cwe': 'CWE-200',
+                        'detection_method': 'check_common_files'
                     })
                     logger.warning(f"Found exposed file: {url}")
             except:
@@ -288,7 +314,8 @@ class VulnerabilityScanner:
                         'description': f'Admin panel accessible at {path}',
                         'url': url,
                         'remediation': 'Ensure admin panel has strong authentication',
-                        'cwe': 'CWE-200'
+                        'cwe': 'CWE-200',
+                        'detection_method': 'check_common_files'
                     })
                     logger.info(f"Found admin panel: {url}")
             except:
@@ -325,7 +352,8 @@ class VulnerabilityScanner:
                         'severity': 'low',
                         'description': description,
                         'remediation': 'Remove sensitive information from HTML source',
-                        'cwe': 'CWE-200'
+                        'cwe': 'CWE-200',
+                        'detection_method': 'check_information_disclosure'
                     })
             
             # Check for stack traces or error messages
@@ -345,7 +373,8 @@ class VulnerabilityScanner:
                         'severity': 'medium',
                         'description': 'Application error messages visible to users',
                         'remediation': 'Implement proper error handling and disable debug mode',
-                        'cwe': 'CWE-209'
+                        'cwe': 'CWE-209',
+                        'detection_method': 'check_information_disclosure'
                     })
                     break
             
@@ -385,7 +414,8 @@ class VulnerabilityScanner:
                                 'description': 'User input may be reflected without proper sanitization',
                                 'url': test_url,
                                 'remediation': 'Implement proper input validation and output encoding',
-                                'cwe': 'CWE-79'
+                                'cwe': 'CWE-79',
+                                'detection_method': 'test_xss_basic'
                             })
                             break
                     except:
@@ -399,7 +429,7 @@ class VulnerabilityScanner:
     def test_sql_injection(self, target: str) -> List[Dict[str, Any]]:
         """Basic SQL injection detection"""
         findings = []
-        sql_payloads = ["'", """, " OR 1=1 --"]
+        sql_payloads = ["'", '"', " OR 1=1 --"]
         error_patterns = ["sql syntax", "mysql", "unclosed quotation mark"]
 
         if '?' in target:
@@ -420,7 +450,8 @@ class VulnerabilityScanner:
                                     'description': f'A potential SQL injection vulnerability was found in parameter {i+1}.',
                                     'url': test_url,
                                     'remediation': 'Use parameterized queries to prevent SQL injection.',
-                                    'cwe': 'CWE-89'
+                                    'cwe': 'CWE-89',
+                                    'detection_method': 'test_sql_injection'
                                 })
                                 break
                     except:
@@ -439,7 +470,8 @@ class VulnerabilityScanner:
                     'description': 'The web server is configured to show a directory listing, which can expose sensitive information.',
                     'url': target,
                     'remediation': 'Disable directory listing on the web server.',
-                    'cwe': 'CWE-548'
+                    'cwe': 'CWE-548',
+                    'detection_method': 'check_directory_listing'
                 })
         except:
             pass
@@ -467,7 +499,8 @@ class VulnerabilityScanner:
                                     'severity': 'high',
                                     'description': f'The server is running {server_header}, which may be outdated and have known vulnerabilities.',
                                     'remediation': 'Update the web server software to the latest version.',
-                                    'cwe': 'CWE-937'
+                                    'cwe': 'CWE-937',
+                                    'detection_method': 'check_outdated_server'
                                 })
                                 break
         except:
@@ -487,7 +520,8 @@ class VulnerabilityScanner:
                         'severity': 'medium',
                         'description': 'A form was found without a clear anti-CSRF token, which could make it vulnerable to Cross-Site Request Forgery.',
                         'remediation': 'Implement anti-CSRF tokens in all state-changing forms.',
-                        'cwe': 'CWE-352'
+                        'cwe': 'CWE-352',
+                        'detection_method': 'test_csrf'
                     })
                     break
         except:

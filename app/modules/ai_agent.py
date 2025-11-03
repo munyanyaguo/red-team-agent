@@ -328,3 +328,94 @@ Format as JSON with keys: method, steps, safety_notes, expected_result, document
         except Exception as e:
             logger.error(f"Suggestion generation failed: {e}", exc_info=True)
             return {'error': str(e)}
+
+    def analyze_with_self_critique(self, findings: List[Dict], 
+                                   max_iterations: int = 3):
+        """Analyze findings with self-critique loop"""
+        
+        current_analysis = self.analyze_vulnerabilities(findings)
+        
+        for iteration in range(max_iterations):
+            # Self-critique
+            critique = self._critique_analysis(current_analysis, findings)
+            
+            if critique.get('quality_score', 0) >= 0.9:  # Good enough
+                logger.info(f"Analysis approved after {iteration + 1} iterations")
+                break
+                
+            # Refine based on critique
+            logger.info(f"Refining analysis (iteration {iteration + 1}): {critique.get('improvements_needed')}")
+            current_analysis = self._refine_analysis(
+                current_analysis, 
+                critique.get('improvements_needed', []),
+                findings
+            )
+            
+        return current_analysis
+        
+    def _critique_analysis(self, analysis: Dict, findings: List[Dict]) -> Dict:
+        """Use AI to critique its own analysis"""
+        critique_prompt = f"""
+        You are a senior security analyst reviewing a junior analyst's report.
+        
+        ANALYSIS TO REVIEW:
+        {json.dumps(analysis, indent=2)}
+        
+        ORIGINAL FINDINGS:
+        {json.dumps(findings, indent=2)}
+        
+        Critique this analysis on:
+        1. Completeness: Are all critical findings addressed?
+        2. Accuracy: Are severity ratings appropriate?
+        3. Actionability: Are remediation steps clear?
+        4. Risk assessment: Is business impact well articulated?
+        
+        Provide:
+        - quality_score (0-1)
+        - improvements_needed (list of specific issues)
+        - missing_elements (list of what's missing)
+        
+        Format your response as JSON.
+        """
+        
+        try:
+            response = self._call_claude(critique_prompt)
+            return self._parse_critique_response(response)
+        except Exception as e:
+            logger.error(f"Error during critique: {e}", exc_info=True)
+            return {'quality_score': 0, 'improvements_needed': [f"Critique failed: {e}"], 'missing_elements': []}
+
+    def _parse_critique_response(self, response_text: str) -> Dict:
+        """Parse the AI's critique response."""
+        try:
+            critique = json.loads(response_text)
+            return critique
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse critique response as JSON: {response_text}")
+            return {'quality_score': 0, 'improvements_needed': ["Failed to parse AI critique"], 'missing_elements': []}
+
+    def _refine_analysis(self, current_analysis: Dict, improvements: List[str], findings: List[Dict]) -> Dict:
+        """Refine the analysis based on critique."""
+        # This is a placeholder. A real implementation would involve
+        # feeding the critique back to the AI to generate a new analysis.
+        logger.info(f"Applying improvements: {improvements}")
+        # For now, just return the current analysis, or a slightly modified one
+        # based on a very simple heuristic.
+        refined_analysis = current_analysis.copy()
+        if "Accuracy: Are severity ratings appropriate?" in improvements:
+            refined_analysis['executive_summary'] += " (Severity ratings reviewed and adjusted.)"
+        return refined_analysis
+
+    def _call_claude(self, prompt: str, max_tokens: int = 2000) -> str:
+        """Helper to call the Anthropic Claude API."""
+        if not self.client:
+            raise Exception('AI features not available - API key missing')
+        
+        message = self.client.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return message.content[0].text

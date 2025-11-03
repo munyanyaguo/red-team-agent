@@ -124,3 +124,74 @@ class Report(db.Model):
             'file_path': self.file_path,
             'generated_at': self.generated_at.isoformat()
         }
+
+
+class AttackKnowledge(db.Model):
+    """Store learned attack patterns and their effectiveness"""
+    __tablename__ = 'attack_knowledge'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    attack_type = db.Column(db.String(100), nullable=False)
+    target_pattern = db.Column(db.String(255))  # e.g., "PHP 7.x", "WordPress 5.x"
+    technique = db.Column(db.Text, nullable=False)
+    success_rate = db.Column(db.Float, default=0.0)
+    times_used = db.Column(db.Integer, default=0)
+    times_successful = db.Column(db.Integer, default=0)
+    average_detection_time = db.Column(db.Float)  # seconds
+    context = db.Column(db.JSON)  # Store environmental conditions
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used = db.Column(db.DateTime)
+    effectiveness_score = db.Column(db.Float, default=0.0)
+
+class ScheduledScan(db.Model):
+    """Model for storing scheduled scans."""
+    __tablename__ = 'scheduled_scan'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    engagement_id = db.Column(db.Integer, db.ForeignKey('engagement.id'), nullable=False)
+    target = db.Column(db.String(255), nullable=False)
+    scan_type = db.Column(db.String(50), nullable=False)
+    schedule = db.Column(db.String(100), nullable=False) # e.g., 'every().day.at("10:30")'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    engagement = db.relationship('Engagement', backref='scheduled_scans', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'engagement_id': self.engagement_id,
+            'target': self.target,
+            'scan_type': self.scan_type,
+            'schedule': self.schedule,
+            'created_at': self.created_at.isoformat()
+        }
+
+class ScanFeedback(db.Model):
+    """Record outcomes of each scan for learning"""
+    __tablename__ = 'scan_feedback'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey('finding.id'))
+    scan_id = db.Column(db.Integer, db.ForeignKey('scan_result.id'))
+    outcome = db.Column(db.String(50))  # 'true_positive', 'false_positive', 'missed'
+    detection_method = db.Column(db.String(100))
+    time_to_detect = db.Column(db.Float)
+    environmental_factors = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    finding = db.relationship('Finding', backref='feedbacks', lazy=True)
+    scan_result = db.relationship('ScanResult', backref='feedbacks', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'finding_id': self.finding_id,
+            'scan_id': self.scan_id,
+            'outcome': self.outcome,
+            'detection_method': self.detection_method,
+            'time_to_detect': self.time_to_detect,
+            'environmental_factors': self.environmental_factors,
+            'created_at': self.created_at.isoformat(),
+            'finding': self.finding.to_dict() if self.finding else None,
+            'scan_result': self.scan_result.to_dict() if self.scan_result else None
+        }

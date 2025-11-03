@@ -1,17 +1,28 @@
 from flask import Blueprint, request, jsonify, current_app
-from app.models import db, Engagement, Target, Finding, ScanResult, Report
+from app import db
+from app.models import (
+    Engagement, 
+    Target, 
+    Finding, 
+    Report, 
+    ScanResult, 
+    ScheduledScan,
+    AttackKnowledge
+)
 from app.modules.recon import ReconEngine
 from app.modules.scanner import VulnerabilityScanner
 from app.modules.ai_agent import AISecurityAgent
 from app.modules.reporter import ReportGenerator
-from app.modules.exploitation import ExploitationEngine
+from app.modules.scheduler import add_scheduled_scan
+from app.modules.learning_engine import LearningEngine
 import json
-import logging
-from datetime import datetime, timezone # Added timezone
+from datetime import datetime, timezone, timedelta
+import os
+import socket
 import validators
-import socket # Added socket import
-import requests # Added requests import
-from requests.exceptions import RequestException # Specific exception for requests
+import requests
+from requests.exceptions import RequestException
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +31,10 @@ api_bp = Blueprint('api', __name__)
 # Initialize modules
 recon_engine = ReconEngine()
 vuln_scanner = VulnerabilityScanner()
-exploitation_engine = ExploitationEngine()
+# exploitation_engine = ExploitationEngine()
 ai_agent = None  # Will be initialized when needed
 report_generator = None  # Will be initialized when needed
+learning_engine = LearningEngine()
 
 def get_ai_agent():
     """Lazy initialization of AI agent"""
@@ -450,6 +462,67 @@ def run_full_scan():
         logger.error(f"Error during full scan: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@api_bp.route('/scans/schedule', methods=['POST'])
+def schedule_scan():
+    data = request.get_json()
+    if not data or not all(k in data for k in ('engagement_id', 'target', 'scan_type', 'schedule')):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    new_scheduled_scan = ScheduledScan(
+        engagement_id=data['engagement_id'],
+        target=data['target'],
+        scan_type=data['scan_type'],
+        schedule=data['schedule']
+    )
+    db.session.add(new_scheduled_scan)
+    db.session.commit()
+
+    add_scheduled_scan(new_scheduled_scan.to_dict())
+
+    return jsonify({'success': True, 'message': 'Scan scheduled successfully', 'scheduled_scan': new_scheduled_scan.to_dict()}), 201
+
+# ============================================================================
+# LEARNING ENDPOINTS
+# ============================================================================
+
+@api_bp.route('/learning/performance', methods=['GET'])
+def get_performance_metrics():
+    """Get agent's self-improvement metrics"""
+    days = request.args.get('days', 30, type=int)
+    metrics = learning_engine.analyze_performance_trends(days)
+    return jsonify(metrics), 200
+
+@api_bp.route('/learning/knowledge', methods=['GET'])
+def get_knowledge_base():
+    """View what the agent has learned"""
+    techniques = AttackKnowledge.query.order_by(
+        AttackKnowledge.effectiveness_score.desc()
+    ).limit(20).all()
+    
+    return jsonify({
+        'total_techniques': AttackKnowledge.query.count(),
+        'top_techniques': [{
+            'technique': t.technique,
+            'success_rate': t.success_rate,
+            'times_used': t.times_used,
+            'effectiveness': t.effectiveness_score,
+            'last_used': t.last_used.isoformat() if t.last_used else None
+        } for t in techniques]
+    }), 200
+
+@api_bp.route('/learning/recommendations', methods=['POST'])
+def get_technique_recommendations():
+    """Get recommended techniques for a target"""
+    data = request.get_json()
+    target_context = data.get('context', {})
+    
+    recommendations = learning_engine.get_recommended_techniques(
+        target_context,
+        limit=10
+    )
+    
+    return jsonify({'recommendations': recommendations}), 200
+
 # ============================================================================
 # FINDINGS ENDPOINTS
 # ============================================================================
@@ -835,39 +908,39 @@ def ai_generate_attack_strategy():
 # EXPLOITATION ENDPOINTS
 # ============================================================================
 
-@api_bp.route('/exploit', methods=['POST'])
-def run_exploit():
-    """Attempt to exploit a finding"""
-    try:
-        data = request.get_json()
-        finding_id = data.get('finding_id')
-
-        if not finding_id:
-            return jsonify({'success': False, 'error': 'Finding ID is required'}), 400
-
-        finding = Finding.query.get_or_404(finding_id)
-
-        logger.info(f"Attempting to exploit finding {finding_id}")
-
-        # Run exploitation
-        exploit_result = exploitation_engine.run_exploitation(finding.to_dict())
-
-        # Update finding with exploitation result
-        if exploit_result.get('success'):
-            finding.status = 'exploited'
-            finding.evidence = json.dumps(exploit_result.get('details', {}))
-            db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'message': 'Exploitation attempt completed',
-            'result': exploit_result
-        }), 200
-
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error during exploitation: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+# @api_bp.route('/exploit', methods=['POST'])
+# def run_exploit():
+#     """Attempt to exploit a finding"""
+#     try:
+#         data = request.get_json()
+#         finding_id = data.get('finding_id')
+# 
+#         if not finding_id:
+#             return jsonify({'success': False, 'error': 'Finding ID is required'}), 400
+# 
+#         finding = Finding.query.get_or_404(finding_id)
+# 
+#         logger.info(f"Attempting to exploit finding {finding_id}")
+# 
+#         # Run exploitation
+#         exploit_result = exploitation_engine.run_exploitation(finding.to_dict())
+# 
+#         # Update finding with exploitation result
+#         if exploit_result.get('success'):
+#             finding.status = 'exploited'
+#             finding.evidence = json.dumps(exploit_result.get('details', {}))
+#             db.session.commit()
+# 
+#         return jsonify({
+#             'success': True,
+#             'message': 'Exploitation attempt completed',
+#             'result': exploit_result
+#         }), 200
+# 
+#     except Exception as e:
+#         db.session.rollback()
+#         logger.error(f"Error during exploitation: {e}", exc_info=True)
+#         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ============================================================================
 # UTILITY ENDPOINTS

@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, Blueprint
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flask_migrate import Migrate
 import logging
 from datetime import datetime # Added datetime import
 
@@ -10,6 +11,7 @@ from .config import config
 # Initialize extensions
 db = SQLAlchemy()
 cors = CORS()
+migrate = Migrate()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -22,13 +24,17 @@ def create_app(config_name='default'):
 
     db.init_app(app)
     cors.init_app(app)
+    migrate.init_app(app, db)
 
     # Register blueprints
     from .routes import api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
 
     from .web_routes import web_bp
-    app.register_blueprint(web_bp)
+    app.register_blueprint(web_bp, url_prefix='/', template_folder='../UI')
+
+    from .modules.scheduler import start_scheduler
+    start_scheduler(app)
 
     @app.route('/health')
     def health_check():

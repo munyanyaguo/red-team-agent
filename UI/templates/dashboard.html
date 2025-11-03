@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Red Team Agent Dashboard</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container-fluid">
+        <h1 class="mt-4">Red Team Agent Dashboard</h1>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Vulnerability Status
+                    </div>
+                    <div class="card-body">
+                        <canvas id="vulnerabilityChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        System Health
+                    </div>
+                    <div class="card-body">
+                        <p>Status: <span id="system-status"></span></p>
+                        <p>Database: <span id="db-status"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Fetch and display vulnerability data
+        fetch('/api/findings/stats')
+            .then(response => response.json())
+            .then(data => {
+                const ctx = document.getElementById('vulnerabilityChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(data.severity_counts),
+                        datasets: [{
+                            label: 'Vulnerabilities by Severity',
+                            data: Object.values(data.severity_counts),
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            });
+
+        // Fetch and display system health
+        fetch('/health')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('system-status').textContent = data.status;
+                document.getElementById('db-status').textContent = data.database;
+            });
+    </script>
+</body>
+</html>
