@@ -1,5 +1,7 @@
 from app import db
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+import secrets
 
 class Engagement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -9,6 +11,7 @@ class Engagement(db.Model):
     status = db.Column(db.String(50), default='planning') # e.g., planning, active, completed, archived
     scope = db.Column(db.Text) # JSON string of scope items
     start_date = db.Column(db.DateTime, default=datetime.utcnow)
+    end_date = db.Column(db.DateTime)  # Optional end date for the engagement
     created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -194,4 +197,83 @@ class ScanFeedback(db.Model):
             'created_at': self.created_at.isoformat(),
             'finding': self.finding.to_dict() if self.finding else None,
             'scan_result': self.scan_result.to_dict() if self.scan_result else None
+        }
+
+class User(db.Model):
+    """User model for authentication"""
+    __tablename__ = 'user'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(50), default='analyst')  # admin, analyst, viewer
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+
+    # Relationships
+    api_keys = db.relationship('APIKey', backref='user', lazy=True, cascade="all, delete-orphan")
+
+    def set_password(self, password):
+        """Hash and set the user password"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """Check if the provided password matches the hash"""
+        return check_password_hash(self.password_hash, password)
+
+    def to_dict(self, include_sensitive=False):
+        """Convert user to dictionary"""
+        data = {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'role': self.role,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat(),
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
+        if include_sensitive:
+            data['api_keys'] = [key.to_dict() for key in self.api_keys if key.is_active]
+        return data
+
+class APIKey(db.Model):
+    """API Key model for programmatic access"""
+    __tablename__ = 'api_key'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)  # Human-readable name for the key
+    key_hash = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    key_prefix = db.Column(db.String(20))  # First few chars for identification
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)  # Optional expiration
+
+    @staticmethod
+    def generate_key():
+        """Generate a new API key"""
+        return f"rtk_{secrets.token_urlsafe(32)}"  # rtk = red team key
+
+    def set_key(self, key):
+        """Hash and store the API key"""
+        self.key_hash = generate_password_hash(key)
+        self.key_prefix = key[:8]  # Store first 8 chars for display
+
+    def check_key(self, key):
+        """Verify an API key"""
+        return check_password_hash(self.key_hash, key)
+
+    def to_dict(self):
+        """Convert API key to dictionary"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'key_prefix': self.key_prefix,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat(),
+            'last_used': self.last_used.isoformat() if self.last_used else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None
         }

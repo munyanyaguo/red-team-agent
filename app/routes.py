@@ -1,14 +1,15 @@
 from flask import Blueprint, request, jsonify, current_app
 from app import db
 from app.models import (
-    Engagement, 
-    Target, 
-    Finding, 
-    Report, 
-    ScanResult, 
+    Engagement,
+    Target,
+    Finding,
+    Report,
+    ScanResult,
     ScheduledScan,
     AttackKnowledge
 )
+from app.auth_helpers import auth_required, admin_required, optional_auth
 from app.modules.recon import ReconEngine
 from app.modules.scanner import VulnerabilityScanner
 from app.modules.ai_agent import AISecurityAgent
@@ -55,6 +56,7 @@ def get_report_generator():
 # ============================================================================
 
 @api_bp.route('/engagements', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def list_engagements():
     """List all engagements"""
     try:
@@ -69,6 +71,7 @@ def list_engagements():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/engagements', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def create_engagement():
     """Create a new engagement"""
     try:
@@ -104,6 +107,7 @@ def create_engagement():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/engagements/<int:engagement_id>', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_engagement(engagement_id):
     """Get engagement details"""
     try:
@@ -125,6 +129,7 @@ def get_engagement(engagement_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/engagements/<int:engagement_id>', methods=['PUT'])
+@auth_required(roles=['admin', 'analyst'])
 def update_engagement(engagement_id):
     """Update engagement"""
     try:
@@ -160,6 +165,7 @@ def update_engagement(engagement_id):
 # ============================================================================
 
 @api_bp.route('/engagements/<int:engagement_id>/targets', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def add_target(engagement_id):
     """Add target to engagement"""
     try:
@@ -209,6 +215,7 @@ def add_target(engagement_id):
 # ============================================================================
 
 @api_bp.route('/scan/recon', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def run_reconnaissance():
     """Run reconnaissance on a target"""
     try:
@@ -276,6 +283,7 @@ def run_reconnaissance():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/scan/vulnerabilities', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def run_vulnerability_scan():
     """Run vulnerability scan on a target"""
     try:
@@ -365,6 +373,7 @@ def run_vulnerability_scan():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/scan/full', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def run_full_scan():
     """Run full assessment (recon + vulnerability scan)"""
     try:
@@ -463,6 +472,7 @@ def run_full_scan():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/scans/schedule', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def schedule_scan():
     data = request.get_json()
     if not data or not all(k in data for k in ('engagement_id', 'target', 'scan_type', 'schedule')):

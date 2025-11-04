@@ -2,6 +2,7 @@ from flask import Flask, jsonify, Blueprint
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager
 import logging
 from datetime import datetime # Added datetime import
 
@@ -12,6 +13,7 @@ from .config import config
 db = SQLAlchemy()
 cors = CORS()
 migrate = Migrate()
+jwt = JWTManager()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -25,10 +27,14 @@ def create_app(config_name='default'):
     db.init_app(app)
     cors.init_app(app)
     migrate.init_app(app, db)
+    jwt.init_app(app)
 
     # Register blueprints
     from .routes import api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
+
+    from .auth_routes import auth_bp
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
     from .web_routes import web_bp
     app.register_blueprint(web_bp, url_prefix='/')
