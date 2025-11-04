@@ -201,7 +201,7 @@ class ScanFeedback(db.Model):
 
 class User(db.Model):
     """User model for authentication"""
-    __tablename__ = 'user'
+    __tablename__ = 'redteam_user'
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
@@ -240,10 +240,10 @@ class User(db.Model):
 
 class APIKey(db.Model):
     """API Key model for programmatic access"""
-    __tablename__ = 'api_key'
+    __tablename__ = 'redteam_api_key'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('redteam_user.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)  # Human-readable name for the key
     key_hash = db.Column(db.String(255), unique=True, nullable=False, index=True)
     key_prefix = db.Column(db.String(20))  # First few chars for identification
