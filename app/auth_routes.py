@@ -106,10 +106,10 @@ def login():
 
         # Create tokens
         access_token = create_access_token(
-            identity=user.id,
+            identity=str(user.id),
             additional_claims={'role': user.role}
         )
-        refresh_token = create_refresh_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         logger.info(f"User logged in: {user.username}")
 
@@ -130,7 +130,7 @@ def login():
 def refresh():
     """Refresh access token"""
     try:
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())  # Convert string to int
         user = User.query.get(current_user_id)
 
         if not user or not user.is_active:
@@ -140,7 +140,7 @@ def refresh():
             }), 401
 
         access_token = create_access_token(
-            identity=user.id,
+            identity=str(user.id),
             additional_claims={'role': user.role}
         )
 
@@ -159,7 +159,7 @@ def refresh():
 def get_current_user():
     """Get current user info"""
     try:
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())  # Convert string to int
         user = User.query.get(current_user_id)
 
         if not user:

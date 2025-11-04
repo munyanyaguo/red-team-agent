@@ -71,7 +71,7 @@ def auth_required(roles=None):
                     # JWT authentication
                     try:
                         verify_jwt_in_request()
-                        user_id = get_jwt_identity()
+                        user_id = int(get_jwt_identity())  # Convert string to int
                         claims = get_jwt()
                         user_role = claims.get('role')
                         auth_method = 'jwt'
@@ -148,7 +148,7 @@ def optional_auth():
                     # JWT authentication
                     try:
                         verify_jwt_in_request()
-                        user_id = get_jwt_identity()
+                        user_id = int(get_jwt_identity())  # Convert string to int
                         user = User.query.get(user_id)
                         if user and user.is_active:
                             request.current_user = user
