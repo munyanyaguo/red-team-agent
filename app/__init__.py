@@ -36,6 +36,45 @@ def create_app(config_name='default'):
     from .auth_routes import auth_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
+    from .admin_routes import admin_bp
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
+    from .sql_injection_routes import sql_injection_bp
+    app.register_blueprint(sql_injection_bp, url_prefix='/api')
+
+    from .xss_routes import xss_bp
+    app.register_blueprint(xss_bp, url_prefix='/api')
+
+    from .keylogger_routes import keylogger_bp
+    app.register_blueprint(keylogger_bp, url_prefix='/api')
+
+    from .rat_routes import rat_bp
+    app.register_blueprint(rat_bp, url_prefix='/api')
+
+    from .proxy_bypass_routes import proxy_bypass_bp
+    app.register_blueprint(proxy_bypass_bp, url_prefix='/api')
+
+    from .firewall_bypass_routes import firewall_bypass_bp
+    app.register_blueprint(firewall_bypass_bp, url_prefix='/api')
+
+    from .obfuscation_routes import obfuscation_bp
+    app.register_blueprint(obfuscation_bp, url_prefix='/api')
+
+    from .code_obfuscation_routes import code_obfuscation_bp
+    app.register_blueprint(code_obfuscation_bp, url_prefix='/api')
+
+    from .registry_persistence_routes import registry_persistence_bp
+    app.register_blueprint(registry_persistence_bp, url_prefix='/api')
+
+    from .cron_persistence_routes import cron_persistence_bp
+    app.register_blueprint(cron_persistence_bp, url_prefix='/api')
+
+    from .aes_encryption_routes import aes_encryption_bp
+    app.register_blueprint(aes_encryption_bp, url_prefix='/api')
+
+    from .polymorphic_malware_routes import polymorphic_malware_bp
+    app.register_blueprint(polymorphic_malware_bp, url_prefix='/api')
+
     from .web_routes import web_bp
     app.register_blueprint(web_bp, url_prefix='/')
 

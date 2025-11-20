@@ -1,4 +1,5 @@
 import logging
+import json
 from datetime import datetime, timedelta
 from app.models import AttackKnowledge, ScanFeedback
 from app import db
@@ -7,12 +8,14 @@ logger = logging.getLogger(__name__)
 
 class LearningEngine:
     def record_scan_outcome(self, finding_id, outcome, detection_method, time_taken, environment):
+        # Convert environment dict to JSON to avoid psycopg2 adaptation issues
+        env_json = json.dumps(environment) if isinstance(environment, dict) else environment
         feedback = ScanFeedback(
             finding_id=finding_id,
             outcome=outcome,
             detection_method=detection_method,
             time_to_detect=time_taken,
-            environmental_factors=environment
+            environmental_factors=json.loads(env_json) if env_json else None  # Parse back to ensure proper type
         )
         db.session.add(feedback)
         db.session.commit()
@@ -21,14 +24,18 @@ class LearningEngine:
     def _update_knowledge_base(self, technique, outcome, context):
         knowledge = AttackKnowledge.query.filter_by(
             technique=technique,
-            target_pattern=context.get('target_tech')
+            target_pattern=context.get('target_tech') if context else None
         ).first()
+
+        # Convert context dict to JSON to avoid psycopg2 adaptation issues
+        ctx_json = json.dumps(context) if isinstance(context, dict) else context
+
         if not knowledge:
             knowledge = AttackKnowledge(
-                attack_type=context.get('attack_type', 'unknown'),
-                target_pattern=context.get('target_tech'),
+                attack_type=context.get('attack_type', 'unknown') if context else 'unknown',
+                target_pattern=context.get('target_tech') if context else None,
                 technique=technique,
-                context=context
+                context=json.loads(ctx_json) if ctx_json else None  # Parse back to ensure proper type
             )
             db.session.add(knowledge)
         knowledge.times_used += 1

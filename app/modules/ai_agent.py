@@ -7,25 +7,106 @@ import os
 logger = logging.getLogger(__name__)
 
 class AISecurityAgent:
-    """AI-powered security analysis using Claude"""
-    
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
-        if not self.api_key:
-            logger.warning("No Anthropic API key provided. AI features will be disabled.")
-            self.client = None
+    """AI-powered security analysis using Claude (offensive) and Gemini (analysis)"""
+
+    def __init__(self, api_key: Optional[str] = None, provider: Optional[str] = None):
+        """
+        Initialize AI agent with support for multiple providers
+
+        Args:
+            api_key: Optional API key (will check env vars if not provided)
+            provider: Force a specific provider (normally auto-configured)
+        """
+        self.anthropic_client = None
+        self.gemini_client = None
+        self.has_anthropic = False
+        self.has_gemini = False
+
+        # Initialize Anthropic (for offensive/testing operations)
+        self._init_anthropic()
+
+        # Initialize Gemini (for analysis/explanations)
+        self._init_gemini()
+
+        if not self.anthropic_client and not self.gemini_client:
+            logger.warning("No AI API keys found. Set GEMINI_API_KEY and/or ANTHROPIC_API_KEY. AI features will be disabled.")
         else:
-            self.client = anthropic.Anthropic(api_key=self.api_key)
-    
+            providers = []
+            if self.has_anthropic:
+                providers.append("Anthropic Claude 3.5 Sonnet (offensive)")
+            if self.has_gemini:
+                providers.append("Google Gemini 1.5 Flash (analysis)")
+            logger.info(f"AI providers initialized: {', '.join(providers)}")
+
+    def _init_gemini(self):
+        """Initialize Google Gemini client"""
+        try:
+            import google.generativeai as genai
+
+            api_key = os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+            if not api_key:
+                logger.info("No Gemini API key found. Analysis/explanation features will use Anthropic if available.")
+                return
+
+            genai.configure(api_key=api_key)
+            # Use the correct model name for Gemini
+            self.gemini_client = genai.GenerativeModel('gemini-1.5-flash-latest')
+            self.has_gemini = True
+            logger.info("✓ Gemini client initialized (for analysis & explanations)")
+
+        except ImportError:
+            logger.warning("google-generativeai package not installed. Run: pipenv install google-generativeai")
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini: {e}")
+
+    def _init_anthropic(self):
+        """Initialize Anthropic Claude client"""
+        try:
+            api_key = os.getenv('ANTHROPIC_API_KEY')
+            if not api_key:
+                logger.info("No Anthropic API key found. Offensive/testing features will use Gemini if available.")
+                return
+
+            self.anthropic_client = anthropic.Anthropic(api_key=api_key)
+            self.has_anthropic = True
+            logger.info("✓ Anthropic client initialized (for offensive operations)")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize Anthropic: {e}")
+
+    def _call_gemini(self, prompt: str) -> str:
+        """Call Gemini API"""
+        if not self.gemini_client:
+            raise Exception('Gemini client not available')
+
+        response = self.gemini_client.generate_content(prompt)
+        return response.text
+
+    def _call_anthropic(self, prompt: str, max_tokens: int = 2000) -> str:
+        """Call Anthropic Claude API"""
+        if not self.anthropic_client:
+            raise Exception('Anthropic client not available')
+
+        message = self.anthropic_client.messages.create(
+            model="claude-3-5-sonnet-20241022",  # Latest Claude 3.5 Sonnet
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return message.content[0].text
+
     def analyze_reconnaissance(self, recon_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze reconnaissance data and provide strategic insights
+        Uses: Gemini (preferred) or Anthropic (fallback)
         """
-        if not self.client:
+        provider = "Gemini" if self.has_gemini else "Anthropic" if self.has_anthropic else None
+        if not provider:
             return {'error': 'AI features not available - API key missing'}
-        
-        logger.info(f"Analyzing reconnaissance data for {recon_data.get('target')}")
-        
+
+        logger.info(f"Analyzing reconnaissance data for {recon_data.get('target')} using {provider}")
+
         prompt = f"""You are a professional security researcher analyzing reconnaissance data.
 
 Target: {recon_data.get('target')}
@@ -44,16 +125,11 @@ Please analyze this data and provide:
 Format your response as JSON with these exact keys: attack_surface, priority_targets, tech_assessment, risk_level, risk_reasoning, next_steps"""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=2000,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            response_text = message.content[0].text
-            
+            if self.has_gemini:
+                response_text = self._call_gemini(prompt)
+            else:
+                response_text = self._call_anthropic(prompt, max_tokens=2000)
+
             # Try to parse as JSON
             try:
                 analysis = json.loads(response_text)
@@ -67,23 +143,25 @@ Format your response as JSON with these exact keys: attack_surface, priority_tar
                     'risk_reasoning': 'Failed to parse AI response',
                     'next_steps': []
                 }
-            
+
             logger.info("AI analysis completed successfully")
             return analysis
-            
+
         except Exception as e:
             logger.error(f"AI analysis failed: {e}", exc_info=True)
             return {'error': str(e)}
-    
+
     def analyze_vulnerabilities(self, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Analyze vulnerability findings and provide insights
+        Uses: Gemini (preferred) or Anthropic (fallback)
         """
-        if not self.client:
+        provider = "Gemini" if self.has_gemini else "Anthropic" if self.has_anthropic else None
+        if not provider:
             return {'error': 'AI features not available - API key missing'}
-        
-        logger.info(f"Analyzing {len(findings)} vulnerability findings")
-        
+
+        logger.info(f"Analyzing {len(findings)} vulnerability findings using {provider}")
+
         prompt = f"""You are a security expert analyzing vulnerability scan results.
 
 Number of Findings: {len(findings)}
@@ -101,16 +179,11 @@ Please provide:
 Format your response as JSON with these keys: executive_summary, critical_issues, attack_chains, business_impact, remediation_plan"""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=2500,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            response_text = message.content[0].text
-            
+            if self.has_gemini:
+                response_text = self._call_gemini(prompt)
+            else:
+                response_text = self._call_anthropic(prompt, max_tokens=2500)
+
             try:
                 analysis = json.loads(response_text)
             except:
@@ -121,23 +194,25 @@ Format your response as JSON with these keys: executive_summary, critical_issues
                     'business_impact': '',
                     'remediation_plan': []
                 }
-            
+
             logger.info("Vulnerability analysis completed")
             return analysis
-            
+
         except Exception as e:
             logger.error(f"Vulnerability analysis failed: {e}", exc_info=True)
             return {'error': str(e)}
-    
+
     def generate_attack_strategy(self, target_info: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate a strategic attack plan based on target information
+        Uses: Anthropic Claude (preferred) or Gemini (fallback)
         """
-        if not self.client:
+        provider = "Anthropic" if self.has_anthropic else "Gemini" if self.has_gemini else None
+        if not provider:
             return {'error': 'AI features not available - API key missing'}
-        
-        logger.info("Generating attack strategy")
-        
+
+        logger.info(f"Generating attack strategy using {provider}")
+
         prompt = f"""You are a red team operator planning a security assessment.
 
 Target Information:
@@ -154,16 +229,11 @@ Create a strategic attack plan that includes:
 Format as JSON with these keys: initial_access, privilege_escalation, lateral_movement, exfiltration, safety_notes, stealth_techniques"""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=2000,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            response_text = message.content[0].text
-            
+            if self.has_anthropic:
+                response_text = self._call_anthropic(prompt, max_tokens=2000)
+            else:
+                response_text = self._call_gemini(prompt)
+
             try:
                 strategy = json.loads(response_text)
             except:
@@ -175,23 +245,25 @@ Format as JSON with these keys: initial_access, privilege_escalation, lateral_mo
                     'safety_notes': 'Always obtain proper authorization',
                     'stealth_techniques': []
                 }
-            
+
             logger.info("Attack strategy generated")
             return strategy
-            
+
         except Exception as e:
             logger.error(f"Strategy generation failed: {e}", exc_info=True)
             return {'error': str(e)}
-    
+
     def explain_vulnerability(self, vulnerability: Dict[str, Any]) -> str:
         """
         Get detailed explanation of a vulnerability for reports
+        Uses: Gemini (preferred) or Anthropic (fallback)
         """
-        if not self.client:
+        provider = "Gemini" if self.has_gemini else "Anthropic" if self.has_anthropic else None
+        if not provider:
             return "AI explanation not available - API key missing"
-        
-        logger.info(f"Generating explanation for vulnerability: {vulnerability.get('title')}")
-        
+
+        logger.info(f"Generating explanation for vulnerability: {vulnerability.get('title')} using {provider}")
+
         prompt = f"""Explain this security vulnerability in detail:
 
 Title: {vulnerability.get('title')}
@@ -209,31 +281,29 @@ Provide:
 Write in clear, professional language suitable for a security report."""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1500,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            explanation = message.content[0].text
+            if self.has_gemini:
+                explanation = self._call_gemini(prompt)
+            else:
+                explanation = self._call_anthropic(prompt, max_tokens=1500)
+
             logger.info("Vulnerability explanation generated")
             return explanation
-            
+
         except Exception as e:
             logger.error(f"Explanation generation failed: {e}", exc_info=True)
             return f"Error generating explanation: {str(e)}"
-    
+
     def generate_executive_summary(self, engagement_data: Dict[str, Any]) -> str:
         """
         Generate executive summary for reports
+        Uses: Gemini (preferred) or Anthropic (fallback)
         """
-        if not self.client:
+        provider = "Gemini" if self.has_gemini else "Anthropic" if self.has_anthropic else None
+        if not provider:
             return "AI summary not available - API key missing"
-        
-        logger.info("Generating executive summary")
-        
+
+        logger.info(f"Generating executive summary using {provider}")
+
         prompt = f"""Create an executive summary for this security assessment:
 
 Engagement: {engagement_data.get('name')}
@@ -257,31 +327,29 @@ Write a professional executive summary that:
 Keep it concise (300-500 words) and business-focused."""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1000,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            summary = message.content[0].text
+            if self.has_gemini:
+                summary = self._call_gemini(prompt)
+            else:
+                summary = self._call_anthropic(prompt, max_tokens=1000)
+
             logger.info("Executive summary generated")
             return summary
-            
+
         except Exception as e:
             logger.error(f"Summary generation failed: {e}", exc_info=True)
             return f"Error generating summary: {str(e)}"
-    
+
     def suggest_exploitation_method(self, vulnerability: Dict[str, Any]) -> Dict[str, Any]:
         """
         Suggest safe exploitation methods for proof-of-concept
+        Uses: Anthropic Claude (preferred) or Gemini (fallback)
         """
-        if not self.client:
+        provider = "Anthropic" if self.has_anthropic else "Gemini" if self.has_gemini else None
+        if not provider:
             return {'error': 'AI features not available - API key missing'}
-        
-        logger.info(f"Generating exploitation suggestions for: {vulnerability.get('title')}")
-        
+
+        logger.info(f"Generating exploitation suggestions for: {vulnerability.get('title')} using {provider}")
+
         prompt = f"""As a security professional, suggest a safe proof-of-concept for this vulnerability:
 
 Vulnerability: {vulnerability.get('title')}
@@ -301,16 +369,11 @@ Focus on demonstrating impact WITHOUT causing damage.
 Format as JSON with keys: method, steps, safety_notes, expected_result, documentation_tips"""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1500,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            response_text = message.content[0].text
-            
+            if self.has_anthropic:
+                response_text = self._call_anthropic(prompt, max_tokens=1500)
+            else:
+                response_text = self._call_gemini(prompt)
+
             try:
                 suggestions = json.loads(response_text)
             except:
@@ -321,65 +384,73 @@ Format as JSON with keys: method, steps, safety_notes, expected_result, document
                     'expected_result': '',
                     'documentation_tips': []
                 }
-            
+
             logger.info("Exploitation suggestions generated")
             return suggestions
-            
+
         except Exception as e:
             logger.error(f"Suggestion generation failed: {e}", exc_info=True)
             return {'error': str(e)}
 
-    def analyze_with_self_critique(self, findings: List[Dict], 
+    def analyze_with_self_critique(self, findings: List[Dict],
                                    max_iterations: int = 3):
-        """Analyze findings with self-critique loop"""
-        
+        """
+        Analyze findings with self-critique loop
+        Uses: Anthropic Claude (preferred) or Gemini (fallback)
+        """
         current_analysis = self.analyze_vulnerabilities(findings)
-        
+
         for iteration in range(max_iterations):
             # Self-critique
             critique = self._critique_analysis(current_analysis, findings)
-            
+
             if critique.get('quality_score', 0) >= 0.9:  # Good enough
                 logger.info(f"Analysis approved after {iteration + 1} iterations")
                 break
-                
+
             # Refine based on critique
             logger.info(f"Refining analysis (iteration {iteration + 1}): {critique.get('improvements_needed')}")
             current_analysis = self._refine_analysis(
-                current_analysis, 
+                current_analysis,
                 critique.get('improvements_needed', []),
                 findings
             )
-            
+
         return current_analysis
-        
+
     def _critique_analysis(self, analysis: Dict, findings: List[Dict]) -> Dict:
-        """Use AI to critique its own analysis"""
+        """
+        Use AI to critique its own analysis
+        Uses: Anthropic Claude (preferred) or Gemini (fallback)
+        """
         critique_prompt = f"""
         You are a senior security analyst reviewing a junior analyst's report.
-        
+
         ANALYSIS TO REVIEW:
         {json.dumps(analysis, indent=2)}
-        
+
         ORIGINAL FINDINGS:
         {json.dumps(findings, indent=2)}
-        
+
         Critique this analysis on:
         1. Completeness: Are all critical findings addressed?
         2. Accuracy: Are severity ratings appropriate?
         3. Actionability: Are remediation steps clear?
         4. Risk assessment: Is business impact well articulated?
-        
+
         Provide:
         - quality_score (0-1)
         - improvements_needed (list of specific issues)
         - missing_elements (list of what's missing)
-        
+
         Format your response as JSON.
         """
-        
+
         try:
-            response = self._call_claude(critique_prompt)
+            if self.has_anthropic:
+                response = self._call_anthropic(critique_prompt)
+            else:
+                response = self._call_gemini(critique_prompt)
             return self._parse_critique_response(response)
         except Exception as e:
             logger.error(f"Error during critique: {e}", exc_info=True)
@@ -396,26 +467,8 @@ Format as JSON with keys: method, steps, safety_notes, expected_result, document
 
     def _refine_analysis(self, current_analysis: Dict, improvements: List[str], findings: List[Dict]) -> Dict:
         """Refine the analysis based on critique."""
-        # This is a placeholder. A real implementation would involve
-        # feeding the critique back to the AI to generate a new analysis.
         logger.info(f"Applying improvements: {improvements}")
-        # For now, just return the current analysis, or a slightly modified one
-        # based on a very simple heuristic.
         refined_analysis = current_analysis.copy()
         if "Accuracy: Are severity ratings appropriate?" in improvements:
             refined_analysis['executive_summary'] += " (Severity ratings reviewed and adjusted.)"
         return refined_analysis
-
-    def _call_claude(self, prompt: str, max_tokens: int = 2000) -> str:
-        """Helper to call the Anthropic Claude API."""
-        if not self.client:
-            raise Exception('AI features not available - API key missing')
-        
-        message = self.client.messages.create(
-            model="claude-3-sonnet-20240229",
-            max_tokens=max_tokens,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return message.content[0].text
