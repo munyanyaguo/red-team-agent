@@ -1,0 +1,4 @@
+FLASK_APP=run.py
+FLASK_ENV=development
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000

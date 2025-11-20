@@ -19,57 +19,16 @@ export const WebSocketProvider = ({ children }) => {
 
   // Initialize WebSocket connection when user is authenticated
   useEffect(() => {
-    if (!isAuthenticated || !user) {
-      // Disconnect if not authenticated
-      if (socket) {
-        socket.disconnect();
-        setSocket(null);
-        setConnected(false);
-      }
-      return;
-    }
-
-    // Create Socket.IO connection with auth token
-    const token = localStorage.getItem('access_token');
-    const newSocket = io(WS_URL, {
-      auth: {
-        token: token,
-      },
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
-
-    // Connection event handlers
-    newSocket.on('connect', () => {
-      console.log('[WebSocket] Connected');
-      setConnected(true);
-      setError(null);
-    });
-
-    newSocket.on('disconnect', (reason) => {
-      console.log('[WebSocket] Disconnected:', reason);
-      setConnected(false);
-    });
-
-    newSocket.on('connect_error', (err) => {
-      console.error('[WebSocket] Connection error:', err);
-      setError(err.message);
-      setConnected(false);
-    });
-
-    newSocket.on('error', (err) => {
-      console.error('[WebSocket] Error:', err);
-      setError(err.message || 'WebSocket error');
-    });
-
-    setSocket(newSocket);
+    // WebSocket disabled - backend doesn't have Socket.IO configured yet
+    console.log('[WebSocket] Connection disabled');
+    setConnected(false);
+    setSocket(null);
+    setError(null);
 
     // Cleanup on unmount
     return () => {
-      if (newSocket) {
-        newSocket.disconnect();
+      if (socket) {
+        socket.disconnect();
       }
     };
   }, [isAuthenticated, user]);
