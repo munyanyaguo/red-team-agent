@@ -17,3 +17,18 @@ __pycache__/
 
 # Instance folder
 instance/
+# Test files with sensitive data
+test_gemini_key.py
+test_*.py
+
+# Environment files (double-check)
+.env
+.env.local
+.env.*
+
+# API keys and secrets
+**/secrets.json
+**/credentials.json
+**/*-key.json
+**/*.pem
+**/*.key
