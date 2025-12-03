@@ -5,6 +5,7 @@ Comprehensive testing framework with detailed reporting, evidence capture,
 and professional-grade test execution for web applications and APIs.
 
 Senior QA Engineer Standards: 25 Years of Best Practices
+Enhanced with AI-powered professional report generation for failed tests
 """
 
 import time
@@ -102,16 +103,29 @@ class TestExecutionContext:
 
 
 class QATestEngine:
-    """Enhanced QA testing engine with comprehensive reporting"""
+    """Enhanced QA testing engine with comprehensive reporting and AI-powered analysis"""
 
-    def __init__(self):
+    def __init__(self, enable_ai_analysis: bool = True):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'QA-Sentinel/2.0 (Professional Automated Testing)'
         })
         self.max_retries = 3
         self.retry_delay = 1  # seconds
-        logger.info("Enhanced QA Testing Engine initialized")
+        self.enable_ai_analysis = enable_ai_analysis
+        self.ai_agent = None
+
+        # Initialize AI agent for professional report generation
+        if self.enable_ai_analysis:
+            try:
+                from app.modules.ai_agent import AISecurityAgent
+                self.ai_agent = AISecurityAgent()
+                logger.info("Enhanced QA Testing Engine initialized with AI-powered analysis")
+            except Exception as e:
+                logger.warning(f"AI agent initialization failed: {e}. Continuing without AI analysis.")
+                self.enable_ai_analysis = False
+        else:
+            logger.info("Enhanced QA Testing Engine initialized (AI analysis disabled)")
 
     def run_test_suite(self, test_suite: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -201,7 +215,7 @@ class QATestEngine:
 
     def execute_test_case(self, test_case: Dict[str, Any], base_url: str) -> Dict[str, Any]:
         """
-        Execute a single test case with comprehensive reporting
+        Execute a single test case with comprehensive reporting and AI-powered analysis
 
         Returns detailed results including:
         - What was tested
@@ -209,6 +223,7 @@ class QATestEngine:
         - Actual vs expected values
         - Evidence and proof
         - Execution timeline
+        - Professional AI analysis for failures (report-quality findings)
         """
         test_type = test_case.get('type', 'functional')
 
@@ -240,6 +255,29 @@ class QATestEngine:
                         'attempt': attempt + 1,
                         'max_retries': self.max_retries
                     }
+
+                # Generate professional AI analysis for failed tests
+                if result.get('status') == 'failed' and self.enable_ai_analysis and self.ai_agent:
+                    logger.info(f"Generating AI-powered analysis for failed test: {result.get('test_name')}")
+                    try:
+                        ai_analysis = self.ai_agent.analyze_qa_test_failure(result, base_url)
+                        result['ai_analysis'] = ai_analysis
+                        if ai_analysis.get('success'):
+                            logger.info(f"✓ Professional report-quality analysis generated for: {result.get('test_name')}")
+                            # Add quick reference tags for easy filtering
+                            analysis_data = ai_analysis.get('analysis', {})
+                            result['finding_id'] = analysis_data.get('finding_id')
+                            result['risk_rating'] = analysis_data.get('risk_assessment', {}).get('overall_risk_rating', 'Unknown')
+                            result['remediation_priority'] = analysis_data.get('remediation', {}).get('priority', 'Medium')
+                        else:
+                            logger.warning(f"AI analysis generation had issues: {ai_analysis.get('error')}")
+                    except Exception as ai_error:
+                        logger.error(f"AI analysis failed: {ai_error}")
+                        result['ai_analysis'] = {
+                            'success': False,
+                            'error': str(ai_error),
+                            'message': 'AI analysis unavailable for this failure'
+                        }
 
                 return result
 
