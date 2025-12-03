@@ -3,6 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import logging
 from datetime import datetime # Added datetime import
 
@@ -14,6 +16,11 @@ db = SQLAlchemy()
 cors = CORS()
 migrate = Migrate()
 jwt = JWTManager()
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -24,10 +31,19 @@ def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
+    # Validate environment before starting
+    from .validators import validate_environment
+    validation_result = validate_environment()
+
+    if not validation_result['valid']:
+        logger.error("Application cannot start due to configuration errors")
+        raise RuntimeError("Invalid configuration. Check logs for details.")
+
     db.init_app(app)
     cors.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    limiter.init_app(app)
 
     # Register blueprints
     from .routes import api_bp
@@ -74,6 +90,12 @@ def create_app(config_name='default'):
 
     from .polymorphic_malware_routes import polymorphic_malware_bp
     app.register_blueprint(polymorphic_malware_bp, url_prefix='/api')
+
+    from .rootkit_routes import rootkit_bp
+    app.register_blueprint(rootkit_bp, url_prefix='/api')
+
+    from .qa_routes import qa_bp
+    app.register_blueprint(qa_bp, url_prefix='/api')
 
     from .web_routes import web_bp
     app.register_blueprint(web_bp, url_prefix='/')

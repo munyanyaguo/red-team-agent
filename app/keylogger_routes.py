@@ -16,6 +16,8 @@ import logging
 import uuid
 
 from .modules.keylogger_simple import KeyloggerManager, PYXHOOK_AVAILABLE
+from .auth_helpers import auth_required
+from .security import require_engagement_context, validate_exploitation_authorization
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ keylogger_manager = KeyloggerManager()
 
 
 @keylogger_bp.route('/keylogger/status', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def check_keylogger_status():
     """
     Check if keylogger functionality is available.
@@ -58,7 +60,7 @@ def check_keylogger_status():
 
 
 @keylogger_bp.route('/keylogger/sessions', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def list_sessions():
     """
     List all keylogger sessions.
@@ -85,7 +87,8 @@ def list_sessions():
 
 
 @keylogger_bp.route('/keylogger/sessions', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
+@require_engagement_context
 def create_session():
     """
     Create a new keylogger session.
@@ -94,7 +97,8 @@ def create_session():
     {
         "session_id": "optional-custom-id",  // Optional, auto-generated if not provided
         "max_duration": 300,                  // Optional, default 300 seconds (5 min)
-        "auto_stop": true                     // Optional, default true
+        "auto_stop": true,                    // Optional, default true
+        "engagement_id": 1                    // REQUIRED: Active engagement ID
     }
 
     Returns:
@@ -144,10 +148,19 @@ def create_session():
 
 
 @keylogger_bp.route('/keylogger/sessions/<session_id>/start', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
+@validate_exploitation_authorization
 def start_session(session_id):
     """
     Start a keylogger session.
+
+    CRITICAL: Requires explicit authorization_confirmed=true
+
+    Request body:
+    {
+        "engagement_id": 1,  // REQUIRED: Active engagement ID
+        "authorization_confirmed": true  // REQUIRED: Explicit authorization
+    }
 
     Returns:
         JSON response with session status
@@ -185,7 +198,7 @@ def start_session(session_id):
 
 
 @keylogger_bp.route('/keylogger/sessions/<session_id>/stop', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def stop_session(session_id):
     """
     Stop a keylogger session.
@@ -226,7 +239,7 @@ def stop_session(session_id):
 
 
 @keylogger_bp.route('/keylogger/sessions/<session_id>/status', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def get_session_status(session_id):
     """
     Get the status of a keylogger session.
@@ -260,7 +273,7 @@ def get_session_status(session_id):
 
 
 @keylogger_bp.route('/keylogger/sessions/<session_id>/logs', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def get_session_logs(session_id):
     """
     Get the captured keylogs from a session.
@@ -304,7 +317,7 @@ def get_session_logs(session_id):
 
 
 @keylogger_bp.route('/keylogger/sessions/<session_id>', methods=['DELETE'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def delete_session(session_id):
     """
     Delete a keylogger session and optionally clean up log files.
@@ -343,7 +356,7 @@ def delete_session(session_id):
 
 
 @keylogger_bp.route('/keylogger', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def get_keylogs_legacy():
     """
     Legacy endpoint for backward compatibility.

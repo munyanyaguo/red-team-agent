@@ -71,7 +71,11 @@ const EngagementTable = ({ engagements, onView, onStartScan }) => {
             </tr>
           ) : (
             engagements.map((engagement) => (
-              <tr key={engagement.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+              <tr
+                key={engagement.id}
+                onClick={() => onView(engagement)}
+                className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              >
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-2">
                     <FolderIcon className="h-5 w-5 text-gray-400" />
@@ -100,18 +104,18 @@ const EngagementTable = ({ engagements, onView, onStartScan }) => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                   {formatDate(engagement.created_at, 'PP')}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => onView(engagement)}
-                      className="text-primary-600 hover:text-primary-900 dark:text-primary-400"
+                      className="text-primary-600 hover:text-primary-900 dark:text-primary-400 hover:scale-110 transition-transform"
                       title="View details"
                     >
                       <EyeIcon className="h-5 w-5" />
                     </button>
                     <button
                       onClick={() => onStartScan(engagement)}
-                      className="text-success-600 hover:text-success-900 dark:text-success-400"
+                      className="text-success-600 hover:text-success-900 dark:text-success-400 hover:scale-110 transition-transform"
                       title="Start scan"
                     >
                       <PlayIcon className="h-5 w-5" />

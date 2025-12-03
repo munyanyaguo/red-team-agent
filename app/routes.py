@@ -58,9 +58,9 @@ def get_report_generator():
 @api_bp.route('/engagements', methods=['GET'])
 @auth_required(roles=['admin', 'analyst', 'viewer'])
 def list_engagements():
-    """List all engagements"""
+    """List all engagements (most recent first)"""
     try:
-        engagements = Engagement.query.all()
+        engagements = Engagement.query.order_by(Engagement.updated_at.desc()).all()
         return jsonify({
             'success': True,
             'count': len(engagements),
@@ -193,8 +193,12 @@ def add_target(engagement_id):
             priority=data.get('priority', 1),
             status='pending'
         )
-        
+
         db.session.add(target)
+
+        # Update engagement timestamp to move it to the top
+        engagement.updated_at = datetime.utcnow()
+
         db.session.commit()
         
         logger.info(f"Added target {target_value} to engagement {engagement.id}")
@@ -259,11 +263,17 @@ def run_reconnaissance():
                 completed_at=datetime.now(timezone.utc), # Use UTC
                 status='completed'
             )
-            
+
             db.session.add(scan_result)
             target.status = 'completed'
+
+            # Update engagement timestamp to move it to the top
+            engagement = Engagement.query.get(engagement_id)
+            if engagement:
+                engagement.updated_at = datetime.utcnow()
+
             db.session.commit()
-            
+
             logger.info(f"Saved recon results for target {target.id}")
         
         # AI Analysis
@@ -349,10 +359,16 @@ def run_vulnerability_scan():
                 completed_at=datetime.now(timezone.utc), # Use UTC
                 status='completed'
             )
-            
+
             db.session.add(scan_result)
+
+            # Update engagement timestamp to move it to the top
+            engagement = Engagement.query.get(engagement_id)
+            if engagement:
+                engagement.updated_at = datetime.utcnow()
+
             db.session.commit()
-            
+
             logger.info(f"Saved {len(findings)} findings for target {target.id}")
         
         # AI Analysis
@@ -440,10 +456,14 @@ def run_full_scan():
                 remediation=finding_data.get('remediation')
             )
             db.session.add(finding)
-        
+
         target.status = 'completed'
+
+        # Update engagement timestamp to move it to the top
+        engagement.updated_at = datetime.utcnow()
+
         db.session.commit()
-        
+
         # Step 3: AI Analysis
         logger.info("Phase 3: AI Analysis")
         ai = get_ai_agent()
@@ -596,10 +616,16 @@ def update_finding(finding_id):
         
         if 'status' in data:
             finding.status = data['status']
-        
+
         if data.get('status') == 'validated':
             finding.verified_at = datetime.now(timezone.utc) # Use UTC
-        
+
+        # Update engagement timestamp to move it to the top
+        if finding.engagement_id:
+            engagement = Engagement.query.get(finding.engagement_id)
+            if engagement:
+                engagement.updated_at = datetime.utcnow()
+
         db.session.commit()
         
         logger.info(f"Updated finding {finding_id}")
@@ -739,8 +765,12 @@ def generate_report():
             format='json' if report_type == 'json' else 'markdown',
             file_path=filepath
         )
-        
+
         db.session.add(report_record)
+
+        # Update engagement timestamp to move it to the top
+        engagement.updated_at = datetime.utcnow()
+
         db.session.commit()
         
         logger.info(f"Report generated successfully: {filepath}")

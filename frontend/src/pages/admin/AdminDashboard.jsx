@@ -18,6 +18,8 @@ import EngagementForm from '../../components/admin/EngagementForm';
 import ScanRunner from '../../components/admin/ScanRunner';
 import FindingsTable from '../../components/admin/FindingsTable';
 import FindingDetails from '../../components/admin/FindingDetails';
+import EngagementDetails from '../../components/admin/EngagementDetails';
+import QADashboard from '../../components/admin/QADashboard';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 
 const AdminDashboard = () => {
@@ -39,6 +41,7 @@ const AdminDashboard = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDeleteKeyModal, setShowDeleteKeyModal] = useState(false);
   const [showEngagementModal, setShowEngagementModal] = useState(false);
+  const [showEngagementDetailsModal, setShowEngagementDetailsModal] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
   const [showFindingModal, setShowFindingModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -218,7 +221,7 @@ const AdminDashboard = () => {
 
   const handleViewEngagement = (engagement) => {
     setSelectedEngagement(engagement);
-    // Could show detailed view modal here
+    setShowEngagementDetailsModal(true);
   };
 
   const handleStartScan = (engagement) => {
@@ -363,6 +366,16 @@ const AdminDashboard = () => {
               }`}
             >
               Findings
+            </button>
+            <button
+              onClick={() => setActiveView('qa')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeView === 'qa'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'
+              }`}
+            >
+              QA Testing
             </button>
           </nav>
         </div>
@@ -602,6 +615,11 @@ const AdminDashboard = () => {
             </Card>
           </div>
         )}
+
+        {/* QA Testing Tab */}
+        {activeView === 'qa' && (
+          <QADashboard />
+        )}
       </main>
 
       {/* User Create/Edit Modal */}
@@ -758,11 +776,26 @@ const AdminDashboard = () => {
         )}
       </Modal>
 
+      {/* Engagement Details Modal */}
+      <Modal
+        isOpen={showEngagementDetailsModal}
+        onClose={() => setShowEngagementDetailsModal(false)}
+        title="Engagement Details & AI Recommendations"
+        size="xl"
+      >
+        {selectedEngagement && (
+          <EngagementDetails
+            engagement={selectedEngagement}
+            onClose={() => setShowEngagementDetailsModal(false)}
+          />
+        )}
+      </Modal>
+
       {/* Finding Details Modal */}
       <Modal
         isOpen={showFindingModal}
         onClose={() => setShowFindingModal(false)}
-        title="Vulnerability Details"
+        title="Vulnerability Details & AI Analysis"
         size="xl"
       >
         {selectedFinding && (

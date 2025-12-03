@@ -176,7 +176,11 @@ const FindingsTable = ({ findings, onViewDetails, onExport }) => {
               </tr>
             ) : (
               filteredFindings.map((finding) => (
-                <tr key={finding.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <tr
+                  key={finding.id}
+                  onClick={() => onViewDetails(finding)}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getSeverityBadge(finding.severity)}
                   </td>
@@ -190,7 +194,7 @@ const FindingsTable = ({ findings, onViewDetails, onExport }) => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     {finding.cve_id ? (
                       <a
                         href={`https://nvd.nist.gov/vuln/detail/${finding.cve_id}`}
@@ -210,10 +214,10 @@ const FindingsTable = ({ findings, onViewDetails, onExport }) => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {formatDate(finding.discovered_at, 'PP')}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => onViewDetails(finding)}
-                      className="text-primary-600 hover:text-primary-900 dark:text-primary-400"
+                      className="text-primary-600 hover:text-primary-900 dark:text-primary-400 hover:scale-110 transition-transform"
                       title="View details"
                     >
                       <EyeIcon className="h-5 w-5" />

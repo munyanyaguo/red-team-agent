@@ -277,3 +277,168 @@ class APIKey(db.Model):
             'last_used': self.last_used.isoformat() if self.last_used else None,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None
         }
+
+# ============================================================================
+# QA TESTING MODELS
+# ============================================================================
+
+class QATestSuite(db.Model):
+    """QA Test Suite - Collection of test cases"""
+    __tablename__ = 'qa_test_suite'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    engagement_id = db.Column(db.Integer, db.ForeignKey('engagement.id'), nullable=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    target_url = db.Column(db.String(500), nullable=False)
+    suite_type = db.Column(db.String(50), default='comprehensive')  # quick, comprehensive, custom
+    status = db.Column(db.String(50), default='draft')  # draft, active, completed, archived
+    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    test_cases = db.relationship('QATestCase', backref='test_suite', lazy=True, cascade="all, delete-orphan")
+    test_runs = db.relationship('QATestRun', backref='test_suite', lazy=True, cascade="all, delete-orphan")
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'engagement_id': self.engagement_id,
+            'name': self.name,
+            'description': self.description,
+            'target_url': self.target_url,
+            'suite_type': self.suite_type,
+            'status': self.status,
+            'test_case_count': len(self.test_cases),
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
+
+class QATestCase(db.Model):
+    """QA Test Case - Individual test definition"""
+    __tablename__ = 'qa_test_case'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    suite_id = db.Column(db.Integer, db.ForeignKey('qa_test_suite.id'), nullable=False)
+    test_id = db.Column(db.String(50), nullable=False)  # e.g., TC-001
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    test_type = db.Column(db.String(50), nullable=False)  # functional, performance, security, accessibility, api
+    priority = db.Column(db.String(20), default='medium')  # critical, high, medium, low
+    
+    # Test configuration stored as JSON
+    test_config = db.Column(db.Text)  # JSON string containing steps, assertions, etc.
+    
+    status = db.Column(db.String(50), default='active')  # active, disabled, deprecated
+    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'suite_id': self.suite_id,
+            'test_id': self.test_id,
+            'name': self.name,
+            'description': self.description,
+            'test_type': self.test_type,
+            'priority': self.priority,
+            'test_config': json.loads(self.test_config) if self.test_config else {},
+            'status': self.status,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
+
+class QATestRun(db.Model):
+    """QA Test Run - Execution of a test suite"""
+    __tablename__ = 'qa_test_run'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    suite_id = db.Column(db.Integer, db.ForeignKey('qa_test_suite.id'), nullable=False)
+    engagement_id = db.Column(db.Integer, db.ForeignKey('engagement.id'), nullable=True)
+    
+    run_type = db.Column(db.String(50), default='manual')  # manual, scheduled, ci_cd
+    status = db.Column(db.String(50), default='pending')  # pending, running, completed, failed
+    
+    # Results summary
+    total_tests = db.Column(db.Integer, default=0)
+    passed_tests = db.Column(db.Integer, default=0)
+    failed_tests = db.Column(db.Integer, default=0)
+    skipped_tests = db.Column(db.Integer, default=0)
+    
+    # Execution times
+    start_time = db.Column(db.DateTime)
+    end_time = db.Column(db.DateTime)
+    duration_seconds = db.Column(db.Float)
+    
+    # Detailed results stored as JSON
+    results_data = db.Column(db.Text)  # JSON string
+    
+    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    
+    # Relationships
+    test_results = db.relationship('QATestResult', backref='test_run', lazy=True, cascade="all, delete-orphan")
+    
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'suite_id': self.suite_id,
+            'engagement_id': self.engagement_id,
+            'run_type': self.run_type,
+            'status': self.status,
+            'total_tests': self.total_tests,
+            'passed_tests': self.passed_tests,
+            'failed_tests': self.failed_tests,
+            'skipped_tests': self.skipped_tests,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'duration_seconds': self.duration_seconds,
+            'results_data': json.loads(self.results_data) if self.results_data else {},
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class QATestResult(db.Model):
+    """QA Test Result - Individual test case execution result"""
+    __tablename__ = 'qa_test_result'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.Integer, db.ForeignKey('qa_test_run.id'), nullable=False)
+    test_case_id = db.Column(db.Integer, db.ForeignKey('qa_test_case.id'), nullable=False)
+    
+    status = db.Column(db.String(50), nullable=False)  # passed, failed, skipped, error
+    
+    # Execution details
+    start_time = db.Column(db.DateTime)
+    end_time = db.Column(db.DateTime)
+    duration_seconds = db.Column(db.Float)
+    
+    # Result details stored as JSON
+    result_data = db.Column(db.Text)  # JSON string with detailed results
+    error_message = db.Column(db.Text)  # Error message if failed
+    
+    # Screenshots/artifacts
+    screenshot_path = db.Column(db.String(500))
+    artifacts = db.Column(db.Text)  # JSON array of artifact paths
+    
+    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'run_id': self.run_id,
+            'test_case_id': self.test_case_id,
+            'status': self.status,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'duration_seconds': self.duration_seconds,
+            'result_data': json.loads(self.result_data) if self.result_data else {},
+            'error_message': self.error_message,
+            'screenshot_path': self.screenshot_path,
+            'artifacts': json.loads(self.artifacts) if self.artifacts else [],
+            'created_at': self.created_at.isoformat()
+        }

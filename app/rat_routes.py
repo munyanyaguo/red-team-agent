@@ -12,6 +12,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 import logging
 
 from .modules.rat_simple import RATManager
+from .auth_helpers import auth_required
+from .security import require_engagement_context, validate_exploitation_authorization
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ rat_manager = RATManager()
 
 
 @rat_bp.route('/rat/sessions', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def list_sessions():
     """
     List all RAT sessions.
@@ -52,7 +54,8 @@ def list_sessions():
 
 
 @rat_bp.route('/rat/sessions', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
+@require_engagement_context
 def create_session():
     """
     Create a new RAT session.
@@ -62,7 +65,8 @@ def create_session():
         "session_id": "optional-custom-id",  // Optional, auto-generated if not provided
         "target_info": "target description",  // Optional
         "max_duration": 3600,                 // Optional, default 3600s (max 7200s)
-        "max_commands": 100                   // Optional, default 100 (max 500)
+        "max_commands": 100,                  // Optional, default 100 (max 500)
+        "engagement_id": 1                    // REQUIRED: Active engagement ID
     }
 
     Returns:
@@ -107,15 +111,20 @@ def create_session():
 
 
 @rat_bp.route('/rat/sessions/<session_id>/execute', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
+@validate_exploitation_authorization
 def execute_command(session_id):
     """
     Execute a command in a RAT session.
 
+    CRITICAL: Requires explicit authorization_confirmed=true
+
     Request body:
     {
         "command": "ls -la",
-        "timeout": 30  // Optional, default 30s
+        "timeout": 30,  // Optional, default 30s
+        "engagement_id": 1,  // REQUIRED: Active engagement ID
+        "authorization_confirmed": true  // REQUIRED: Explicit authorization
     }
 
     Returns:
@@ -174,7 +183,7 @@ def execute_command(session_id):
 
 
 @rat_bp.route('/rat/sessions/<session_id>/cd', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def change_directory(session_id):
     """
     Change the working directory for a RAT session.
@@ -230,7 +239,7 @@ def change_directory(session_id):
 
 
 @rat_bp.route('/rat/sessions/<session_id>/status', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def get_session_status(session_id):
     """
     Get the status of a RAT session.
@@ -264,7 +273,7 @@ def get_session_status(session_id):
 
 
 @rat_bp.route('/rat/sessions/<session_id>/history', methods=['GET'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def get_session_history(session_id):
     """
     Get command execution history for a RAT session.
@@ -306,7 +315,7 @@ def get_session_history(session_id):
 
 
 @rat_bp.route('/rat/sessions/<session_id>/terminate', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def terminate_session(session_id):
     """
     Terminate a RAT session.
@@ -341,7 +350,7 @@ def terminate_session(session_id):
 
 
 @rat_bp.route('/rat/sessions/<session_id>', methods=['DELETE'])
-@jwt_required()
+@auth_required(roles=['admin'])
 def delete_session(session_id):
     """
     Delete a RAT session.
@@ -375,7 +384,8 @@ def delete_session(session_id):
 
 
 @rat_bp.route('/rat', methods=['POST'])
-@jwt_required()
+@auth_required(roles=['admin'])
+@validate_exploitation_authorization
 def execute_command_legacy():
     """
     Legacy endpoint for backward compatibility.

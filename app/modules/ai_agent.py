@@ -49,8 +49,8 @@ class AISecurityAgent:
                 return
 
             genai.configure(api_key=api_key)
-            # Use the correct model name for Gemini
-            self.gemini_client = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # Use the latest stable Gemini model
+            self.gemini_client = genai.GenerativeModel('gemini-2.5-flash')
             self.has_gemini = True
             logger.info("✓ Gemini client initialized (for analysis & explanations)")
 
