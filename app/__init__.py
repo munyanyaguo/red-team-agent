@@ -97,6 +97,9 @@ def create_app(config_name='default'):
     from .qa_routes import qa_bp
     app.register_blueprint(qa_bp, url_prefix='/api')
 
+    from .tool_management_routes import tool_mgmt_bp
+    app.register_blueprint(tool_mgmt_bp, url_prefix='/api')
+
     from .web_routes import web_bp
     app.register_blueprint(web_bp, url_prefix='/')
 
