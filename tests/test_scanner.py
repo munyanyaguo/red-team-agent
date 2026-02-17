@@ -63,12 +63,23 @@ class TestVulnerabilityScanner:
 
     @patch('app.modules.scanner.requests.get')
     def test_check_information_disclosure(self, mock_get, scanner):
+        # Use a realistic credential leak pattern (database connection string)
         mock_response = MagicMock()
-        mock_response.text = 'mysql password'
+        mock_response.text = '<html>config: mysql://admin:secret@db.internal:3306/app</html>'
         mock_get.return_value = mock_response
 
         findings = scanner.check_information_disclosure('http://test.com')
         assert len(findings) > 0
+
+    @patch('app.modules.scanner.requests.get')
+    def test_check_information_disclosure_no_false_positive(self, mock_get, scanner):
+        # Generic words like "password" in form labels should NOT trigger findings
+        mock_response = MagicMock()
+        mock_response.text = '<html><label>Password</label><input type="password"></html>'
+        mock_get.return_value = mock_response
+
+        findings = scanner.check_information_disclosure('http://test.com')
+        assert len(findings) == 0
 
     @patch('app.modules.scanner.requests.get')
     def test_test_xss_basic(self, mock_get, scanner):
