@@ -17,10 +17,13 @@ def run_scheduler():
 def load_scheduled_scans(app):
     """Load existing scheduled scans from the database and add them to the scheduler."""
     with app.app_context():
-        scheduled_scans = ScheduledScan.query.all()
-        for scan in scheduled_scans:
-            add_scheduled_scan(scan.to_dict(), app)
-        logger.info(f"Loaded {len(scheduled_scans)} scheduled scans from database.")
+        try:
+            scheduled_scans = ScheduledScan.query.all()
+            for scan in scheduled_scans:
+                add_scheduled_scan(scan.to_dict(), app)
+            logger.info(f"Loaded {len(scheduled_scans)} scheduled scans from database.")
+        except Exception as e:
+            logger.warning(f"Could not load scheduled scans: {e}")
 
 def start_scheduler(app):
     """Start the scheduler thread and load existing schedules."""

@@ -12,7 +12,7 @@ class Engagement(db.Model):
     scope = db.Column(db.Text) # JSON string of scope items
     start_date = db.Column(db.DateTime, default=datetime.utcnow)
     end_date = db.Column(db.DateTime)  # Optional end date for the engagement
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     targets = db.relationship('Target', backref='engagement', lazy=True, cascade="all, delete-orphan")
@@ -40,7 +40,7 @@ class Target(db.Model):
     value = db.Column(db.String(255), nullable=False)
     priority = db.Column(db.Integer, default=1)
     status = db.Column(db.String(50), default='pending') # e.g., pending, scanning, completed
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     scan_results = db.relationship('ScanResult', backref='target', lazy=True, cascade="all, delete-orphan")
@@ -69,7 +69,7 @@ class Finding(db.Model):
     status = db.Column(db.String(50), default='new') # e.g., new, acknowledged, fixed, false_positive
     remediation = db.Column(db.Text)
     evidence = db.Column(db.Text) # JSON string of evidence details
-    discovered_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    discovered_at = db.Column(db.DateTime, server_default=db.func.now())
     verified_at = db.Column(db.DateTime)
 
     def to_dict(self):
@@ -95,7 +95,7 @@ class ScanResult(db.Model):
     tool_name = db.Column(db.String(100))
     raw_output = db.Column(db.Text) # Raw output from the scanning tool
     parsed_results = db.Column(db.Text) # JSON string of parsed results
-    completed_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    completed_at = db.Column(db.DateTime, server_default=db.func.now())
     status = db.Column(db.String(50), default='completed') # e.g., completed, failed, running
 
     def to_dict(self):
@@ -116,7 +116,7 @@ class Report(db.Model):
     report_type = db.Column(db.String(50), nullable=False) # e.g., executive, technical, remediation
     format = db.Column(db.String(50), default='markdown') # e.g., markdown, pdf, json
     file_path = db.Column(db.String(255), nullable=False)
-    generated_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    generated_at = db.Column(db.DateTime, server_default=db.func.now())
 
     def to_dict(self):
         return {
@@ -293,7 +293,7 @@ class QATestSuite(db.Model):
     target_url = db.Column(db.String(500), nullable=False)
     suite_type = db.Column(db.String(50), default='comprehensive')  # quick, comprehensive, custom
     status = db.Column(db.String(50), default='draft')  # draft, active, completed, archived
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
@@ -331,7 +331,7 @@ class QATestCase(db.Model):
     test_config = db.Column(db.Text)  # JSON string containing steps, assertions, etc.
     
     status = db.Column(db.String(50), default='active')  # active, disabled, deprecated
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def to_dict(self):
@@ -376,7 +376,7 @@ class QATestRun(db.Model):
     # Detailed results stored as JSON
     results_data = db.Column(db.Text)  # JSON string
     
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     
     # Relationships
     test_results = db.relationship('QATestResult', backref='test_run', lazy=True, cascade="all, delete-orphan")
@@ -424,7 +424,7 @@ class QATestResult(db.Model):
     screenshot_path = db.Column(db.String(500))
     artifacts = db.Column(db.Text)  # JSON array of artifact paths
     
-    created_at = db.Column(db.DateTime, server_default=db.func.timezone('UTC', db.func.now()))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     
     def to_dict(self):
         import json

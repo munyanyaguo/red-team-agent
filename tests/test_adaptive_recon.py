@@ -59,11 +59,10 @@ class TestReconEngine:
         assert ip is None
         mock_gethostbyname.assert_called_once_with('nonexistent.com')
 
-    @patch('app.modules.recon.dns.resolver.Resolver.resolve')
-    def test_dns_enumeration(self, mock_resolve, recon_engine):
+    def test_dns_enumeration(self, recon_engine):
         mock_answer = MagicMock()
-        mock_answer.to_text.return_value = '1.1.1.1'
-        mock_resolve.return_value = [mock_answer]
+        mock_answer.__str__ = lambda self: '1.1.1.1'
+        recon_engine.dns_resolver.resolve.return_value = [mock_answer]
         dns_info = recon_engine.dns_enumeration('example.com')
         assert 'A' in dns_info
         assert '1.1.1.1' in dns_info['A']
@@ -74,16 +73,18 @@ class TestReconEngine:
         assert len(subdomains) > 0
         assert 'www.example.com' in subdomains[0]['subdomain']
 
-    @patch('app.modules.recon.nmap.PortScanner')
-    def test_port_scan(self, mock_nmap, recon_engine):
-        mock_scanner = MagicMock()
-        mock_nmap.return_value = mock_scanner
+    def test_port_scan(self, recon_engine):
+        mock_scanner = recon_engine.nm
+
+        # Create a mock host that supports both method calls and dict-like access
+        mock_host = MagicMock()
+        mock_host.state.return_value = 'up'
+        mock_host.all_protocols.return_value = ['tcp']
+        mock_host.__getitem__ = MagicMock(return_value={
+            80: {'state': 'open', 'name': 'http', 'product': '', 'version': '', 'extrainfo': ''}
+        })
+        mock_scanner.__getitem__ = MagicMock(return_value=mock_host)
         mock_scanner.all_hosts.return_value = ['127.0.0.1']
-        mock_scanner.__getitem__.return_value = {
-            'tcp': {
-                80: {'state': 'open', 'name': 'http'}
-            }
-        }
 
         results = recon_engine.port_scan('127.0.0.1')
         assert 'open_ports' in results

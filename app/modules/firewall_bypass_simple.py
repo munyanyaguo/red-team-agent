@@ -125,7 +125,7 @@ class FirewallBypassTester:
         finally:
             try:
                 sock.close()
-            except:
+            except OSError:
                 pass
 
     def test_udp_connection(self, target_ip: str, target_port: int,
@@ -195,7 +195,7 @@ class FirewallBypassTester:
         finally:
             try:
                 sock.close()
-            except:
+            except OSError:
                 pass
 
     def port_scan(self, target_ip: str, ports: List[int],

@@ -362,7 +362,7 @@ Format as JSON with these keys: initial_access, privilege_escalation, lateral_mo
 
             try:
                 strategy = json.loads(response_text)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 strategy = {
                     'initial_access': response_text,
                     'privilege_escalation': '',
@@ -502,7 +502,7 @@ Format as JSON with keys: method, steps, safety_notes, expected_result, document
 
             try:
                 suggestions = json.loads(response_text)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 suggestions = {
                     'method': response_text,
                     'steps': [],

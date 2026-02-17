@@ -14,10 +14,40 @@ class ReconEngine:
     """Handles reconnaissance operations"""
     
     def __init__(self):
-        self.nm = nmap.PortScanner()
-        self.dns_resolver = dns.resolver.Resolver()
+        try:
+            self.nm = nmap.PortScanner()
+        except nmap.PortScannerError:
+            logger.warning("nmap not found in PATH. Port scanning will be unavailable.")
+            self.nm = None
+        try:
+            self.dns_resolver = dns.resolver.Resolver()
+        except dns.resolver.NoResolverConfiguration:
+            logger.warning("DNS resolver not configured. DNS enumeration will be unavailable.")
+            self.dns_resolver = None
         self.learning_engine = LearningEngine()
-    
+
+    def run_adaptive_recon(self, target: str, target_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Run adaptive reconnaissance using learning engine recommendations"""
+        logger.info(f"Starting adaptive recon on {target}")
+
+        recommendations = self.learning_engine.get_recommended_techniques(target_context)
+
+        if not recommendations:
+            return self.run_full_recon(target)
+
+        # Use recommendations to guide targeted scanning
+        ip_address = self._resolve_to_ip(target)
+        results = {
+            'target': target,
+            'adaptive_scan': True,
+            'recommendations_used': recommendations,
+        }
+
+        if ip_address:
+            results['port_scan'] = self.port_scan(ip_address, ports='80,443,8080')
+
+        return results
+
     def run_full_recon(self, target: str) -> Dict[str, Any]:
         """Run complete reconnaissance on a target and return dictionary with all findings"""
         logger.info(f"Starting reconnaissance on {target}")
@@ -98,6 +128,9 @@ class ReconEngine:
         """Perform DNS Enumeration"""
         logger.info(f"Running DNS enumeration on {domain}")
 
+        if self.dns_resolver is None:
+            return {'error': 'DNS resolver is not configured.'}
+
         dns_info = {
             'A': [],
             'AAAA': [],
@@ -156,6 +189,9 @@ class ReconEngine:
     def port_scan(self, target: str, ports: str = '1-1000') -> Dict[str, Any]:
         """Perform port scan on target. Default scans top 1000 ports"""
         logger.info(f"Starting port scan on {target}")
+
+        if self.nm is None:
+            return {'error': 'nmap is not available. Install nmap to enable port scanning.'}
 
         try:
             # Scan with basic options 

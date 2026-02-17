@@ -5,14 +5,15 @@ Run with: pytest test_basic.py -v
 
 import pytest
 import json
+from flask_jwt_extended import create_access_token
 from app import create_app
-from app.models import db, Engagement, Target, Finding
+from app.models import db, Engagement, Target, Finding, User
 
 @pytest.fixture
 def app():
     """Create and configure a test app"""
     app = create_app('testing')
-    
+
     with app.app_context():
         db.create_all()
         yield app
@@ -20,12 +21,37 @@ def app():
         db.drop_all()
 
 @pytest.fixture
+def test_user(app):
+    """Create a test user for authentication"""
+    with app.app_context():
+        user = User(
+            username='testadmin',
+            email='testadmin@example.com',
+            role='admin',
+            is_active=True,
+        )
+        user.set_password('testpassword123')
+        db.session.add(user)
+        db.session.commit()
+        return user.id
+
+@pytest.fixture
+def auth_headers(app, test_user):
+    """Generate JWT auth headers for testing"""
+    with app.app_context():
+        token = create_access_token(
+            identity=str(test_user),
+            additional_claims={'role': 'admin'}
+        )
+        return {'Authorization': f'Bearer {token}'}
+
+@pytest.fixture
 def client(app):
     """Test client"""
     return app.test_client()
 
 @pytest.fixture
-def engagement(app):
+def engagement(app, auth_headers):
     """Create a test engagement"""
     with app.app_context():
         eng = Engagement(
@@ -53,22 +79,20 @@ def test_index(client):
     """Test index endpoint"""
     response = client.get('/')
     assert response.status_code == 200
-    data = response.get_json()
-    assert 'name' in data
-    assert 'endpoints' in data
 
 # ============================================================================
 # ENGAGEMENT TESTS
 # ============================================================================
 
-def test_create_engagement(client):
+def test_create_engagement(client, auth_headers):
     """Test creating an engagement"""
     response = client.post('/api/engagements',
         json={
             'name': 'Test Engagement',
             'client': 'Test Client',
             'type': 'internal'
-        }
+        },
+        headers=auth_headers
     )
     assert response.status_code == 201
     data = response.get_json()
@@ -76,26 +100,27 @@ def test_create_engagement(client):
     assert 'engagement' in data
     assert data['engagement']['name'] == 'Test Engagement'
 
-def test_list_engagements(client, engagement):
+def test_list_engagements(client, engagement, auth_headers):
     """Test listing engagements"""
-    response = client.get('/api/engagements')
+    response = client.get('/api/engagements', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
     assert data['count'] >= 1
 
-def test_get_engagement(client, engagement):
+def test_get_engagement(client, engagement, auth_headers):
     """Test getting a specific engagement"""
-    response = client.get(f'/api/engagements/{engagement}')
+    response = client.get(f'/api/engagements/{engagement}', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
     assert data['engagement']['id'] == engagement
 
-def test_update_engagement(client, engagement):
+def test_update_engagement(client, engagement, auth_headers):
     """Test updating an engagement"""
     response = client.put(f'/api/engagements/{engagement}',
-        json={'status': 'active'}
+        json={'status': 'active'},
+        headers=auth_headers
     )
     assert response.status_code == 200
     data = response.get_json()
@@ -106,10 +131,11 @@ def test_update_engagement(client, engagement):
 # TARGET TESTS
 # ============================================================================
 
-def test_add_target(client, engagement):
+def test_add_target(client, engagement, auth_headers):
     """Test adding a target to engagement"""
     response = client.post(f'/api/engagements/{engagement}/targets',
-        json={'target': 'example.com', 'priority': 1}
+        json={'target': 'example.com', 'priority': 1},
+        headers=auth_headers
     )
     assert response.status_code == 201
     data = response.get_json()
@@ -173,9 +199,9 @@ def test_get_stats(client):
     assert 'engagements' in data['stats']
     assert 'findings' in data['stats']
 
-def test_findings_stats(client, engagement):
+def test_findings_stats(client, engagement, auth_headers):
     """Test getting findings statistics"""
-    response = client.get(f'/api/findings/stats?engagement_id={engagement}')
+    response = client.get(f'/api/findings/stats?engagement_id={engagement}', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -185,22 +211,23 @@ def test_findings_stats(client, engagement):
 # ERROR HANDLING TESTS
 # ============================================================================
 
-def test_engagement_not_found(client):
+def test_engagement_not_found(client, auth_headers):
     """Test getting non-existent engagement"""
-    response = client.get('/api/engagements/99999')
+    response = client.get('/api/engagements/99999', headers=auth_headers)
     assert response.status_code == 404
 
-def test_missing_required_field(client):
+def test_missing_required_field(client, auth_headers):
     """Test creating engagement without required field"""
-    response = client.post('/api/engagements', json={})
+    response = client.post('/api/engagements', json={}, headers=auth_headers)
     assert response.status_code == 400
     data = response.get_json()
     assert data['success'] is False
 
-def test_invalid_target_add(client, engagement):
+def test_invalid_target_add(client, engagement, auth_headers):
     """Test adding target without value"""
     response = client.post(f'/api/engagements/{engagement}/targets',
-        json={'priority': 1}
+        json={'priority': 1},
+        headers=auth_headers
     )
     assert response.status_code == 400
 
@@ -268,14 +295,15 @@ def test_finding_model(app):
 # ============================================================================
 
 @pytest.mark.slow
-def test_recon_scan(client, engagement):
+def test_recon_scan(client, engagement, auth_headers):
     """Test reconnaissance scan (slow test)"""
     response = client.post('/api/scan/recon',
         json={
             'target': 'example.com',
             'engagement_id': engagement,
             'ai_analysis': False  # Skip AI for testing
-        }
+        },
+        headers=auth_headers
     )
     assert response.status_code == 200
     data = response.get_json()

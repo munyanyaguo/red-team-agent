@@ -31,13 +31,14 @@ def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    # Validate environment before starting
-    from .validators import validate_environment
-    validation_result = validate_environment()
+    # Validate environment before starting (skip in testing mode)
+    if config_name != 'testing':
+        from .validators import validate_environment
+        validation_result = validate_environment()
 
-    if not validation_result['valid']:
-        logger.error("Application cannot start due to configuration errors")
-        raise RuntimeError("Invalid configuration. Check logs for details.")
+        if not validation_result['valid']:
+            logger.error("Application cannot start due to configuration errors")
+            raise RuntimeError("Invalid configuration. Check logs for details.")
 
     db.init_app(app)
     cors.init_app(app)

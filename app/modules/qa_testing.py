@@ -819,7 +819,7 @@ class QATestEngine:
             # Parse response
             try:
                 response_json = response.json()
-            except:
+            except (ValueError, Exception):
                 response_json = None
 
             result['response_details'] = {
@@ -1159,7 +1159,7 @@ class QATestEngine:
                         'reflected': True,
                         'location': 'query_parameter'
                     })
-            except:
+            except Exception:
                 pass
 
         passed = len(vulnerabilities) == 0
@@ -1212,7 +1212,7 @@ class QATestEngine:
                             'indication': 'sql_error' if has_sql_error else 'response_anomaly',
                             'location': 'query_parameter'
                         })
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -1450,7 +1450,7 @@ class QATestEngine:
             start = datetime.fromisoformat(start_time)
             end = datetime.fromisoformat(end_time)
             return round((end - start).total_seconds(), 3)
-        except:
+        except (ValueError, TypeError):
             return 0.0
 
     def generate_test_cases(self, target_url: str, scan_type: str = 'comprehensive') -> List[Dict[str, Any]]:

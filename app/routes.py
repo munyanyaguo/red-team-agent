@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
+from werkzeug.exceptions import HTTPException
 from app import db
 from app.models import (
     Engagement,
@@ -112,18 +113,20 @@ def get_engagement(engagement_id):
     """Get engagement details"""
     try:
         engagement = Engagement.query.get_or_404(engagement_id)
-        
+
         # Include related data
         engagement_dict = engagement.to_dict()
         engagement_dict['targets'] = [t.to_dict() for t in engagement.targets]
         engagement_dict['findings'] = [f.to_dict() for f in engagement.findings]
         engagement_dict['reports'] = [r.to_dict() for r in engagement.reports]
-        
+
         return jsonify({
             'success': True,
             'engagement': engagement_dict
         }), 200
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting engagement: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -197,7 +200,7 @@ def add_target(engagement_id):
         db.session.add(target)
 
         # Update engagement timestamp to move it to the top
-        engagement.updated_at = datetime.utcnow()
+        engagement.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
         
@@ -270,7 +273,7 @@ def run_reconnaissance():
             # Update engagement timestamp to move it to the top
             engagement = Engagement.query.get(engagement_id)
             if engagement:
-                engagement.updated_at = datetime.utcnow()
+                engagement.updated_at = datetime.now(timezone.utc)
 
             db.session.commit()
 
@@ -365,7 +368,7 @@ def run_vulnerability_scan():
             # Update engagement timestamp to move it to the top
             engagement = Engagement.query.get(engagement_id)
             if engagement:
-                engagement.updated_at = datetime.utcnow()
+                engagement.updated_at = datetime.now(timezone.utc)
 
             db.session.commit()
 
@@ -460,7 +463,7 @@ def run_full_scan():
         target.status = 'completed'
 
         # Update engagement timestamp to move it to the top
-        engagement.updated_at = datetime.utcnow()
+        engagement.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -516,6 +519,7 @@ def schedule_scan():
 # ============================================================================
 
 @api_bp.route('/learning/performance', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_performance_metrics():
     """Get agent's self-improvement metrics"""
     days = request.args.get('days', 30, type=int)
@@ -523,6 +527,7 @@ def get_performance_metrics():
     return jsonify(metrics), 200
 
 @api_bp.route('/learning/knowledge', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_knowledge_base():
     """View what the agent has learned"""
     techniques = AttackKnowledge.query.order_by(
@@ -541,6 +546,7 @@ def get_knowledge_base():
     }), 200
 
 @api_bp.route('/learning/recommendations', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def get_technique_recommendations():
     """Get recommended techniques for a target"""
     data = request.get_json()
@@ -558,6 +564,7 @@ def get_technique_recommendations():
 # ============================================================================
 
 @api_bp.route('/findings', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def list_findings():
     """List all findings (optionally filtered by engagement)"""
     try:
@@ -585,6 +592,7 @@ def list_findings():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/findings/<int:finding_id>', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_finding(finding_id):
     """Get detailed information about a finding"""
     try:
@@ -608,6 +616,7 @@ def get_finding(finding_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/findings/<int:finding_id>', methods=['PUT'])
+@auth_required(roles=['admin', 'analyst'])
 def update_finding(finding_id):
     """Update finding status"""
     try:
@@ -624,7 +633,7 @@ def update_finding(finding_id):
         if finding.engagement_id:
             engagement = Engagement.query.get(finding.engagement_id)
             if engagement:
-                engagement.updated_at = datetime.utcnow()
+                engagement.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
         
@@ -642,6 +651,7 @@ def update_finding(finding_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/findings/stats', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_findings_stats():
     """Get statistics about findings"""
     try:
@@ -687,6 +697,7 @@ def get_findings_stats():
 # ============================================================================
 
 @api_bp.route('/reports/generate', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def generate_report():
     """Generate a report for an engagement"""
     try:
@@ -769,7 +780,7 @@ def generate_report():
         db.session.add(report_record)
 
         # Update engagement timestamp to move it to the top
-        engagement.updated_at = datetime.utcnow()
+        engagement.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
         
@@ -791,6 +802,7 @@ def generate_report():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/reports/<int:report_id>', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def get_report(report_id):
     """Get report details"""
     try:
@@ -822,6 +834,7 @@ def get_report(report_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/reports', methods=['GET'])
+@auth_required(roles=['admin', 'analyst', 'viewer'])
 def list_reports():
     """List all reports"""
     try:
@@ -848,6 +861,7 @@ def list_reports():
 # ============================================================================
 
 @api_bp.route('/ai/analyze/target', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def ai_analyze_target():
     """Get AI analysis for a target"""
     try:
@@ -887,6 +901,7 @@ def ai_analyze_target():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/ai/explain/vulnerability', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def ai_explain_vulnerability():
     """Get AI explanation of a vulnerability"""
     try:
@@ -913,6 +928,7 @@ def ai_explain_vulnerability():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/ai/attack-strategy', methods=['POST'])
+@auth_required(roles=['admin', 'analyst'])
 def ai_generate_attack_strategy():
     """Generate attack strategy using AI"""
     try:

@@ -1,6 +1,6 @@
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.models import AttackKnowledge, ScanFeedback
 from app import db
 
@@ -35,22 +35,26 @@ class LearningEngine:
                 attack_type=context.get('attack_type', 'unknown') if context else 'unknown',
                 target_pattern=context.get('target_tech') if context else None,
                 technique=technique,
-                context=json.loads(ctx_json) if ctx_json else None  # Parse back to ensure proper type
+                context=json.loads(ctx_json) if ctx_json else None,  # Parse back to ensure proper type
+                times_used=0,
+                times_successful=0,
+                success_rate=0.0,
+                effectiveness_score=0.0,
             )
             db.session.add(knowledge)
         # Only count verified outcomes toward usage/success statistics
         if outcome in ['true_positive', 'successful', 'false_positive', 'missed']:
             knowledge.times_used += 1
-            knowledge.last_used = datetime.utcnow()
+            knowledge.last_used = datetime.now(timezone.utc)
             if outcome in ['true_positive', 'successful']:
                 knowledge.times_successful += 1
             knowledge.success_rate = knowledge.times_successful / knowledge.times_used if knowledge.times_used else 0
         else:
             # 'unverified' outcomes are recorded but don't affect success metrics
-            knowledge.last_used = datetime.utcnow()
+            knowledge.last_used = datetime.now(timezone.utc)
         knowledge.effectiveness_score = (
             0.6 * knowledge.success_rate +
-            0.4 * max(0, 1 - ((datetime.utcnow() - knowledge.last_used).days / 365))
+            0.4 * max(0, 1 - ((datetime.now(timezone.utc) - knowledge.last_used).days / 365))
         )
         db.session.commit()
         logger.info(f"Knowledge updated for {technique}: Success rate {knowledge.success_rate:.2%}")
@@ -64,7 +68,7 @@ class LearningEngine:
 
         recommendations = []
         for knowledge in relevant_knowledge:
-            technologies = target_context.get('technologies', [])
+            technologies = target_context.get('technologies', []) or []
             relevance = 0.5 if any(t in (knowledge.target_pattern or '') for t in technologies) else 0
             recommendations.append({
                 'technique': knowledge.technique,
@@ -76,14 +80,15 @@ class LearningEngine:
         return sorted(recommendations, key=lambda x: x['effectiveness_score'] + x['relevance'], reverse=True)[:limit]
 
     def analyze_performance_trends(self, days=30):
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         feedback = ScanFeedback.query.filter(ScanFeedback.created_at >= cutoff).all()
         if not feedback:
             return {'status': 'insufficient_data'}
         scans = len(feedback)
         successful = sum(1 for f in feedback if f.outcome in ['true_positive', 'successful'])
         false_positives = sum(1 for f in feedback if f.outcome == 'false_positive')
-        avg_time = sum(f.time_to_detect for f in feedback if f.time_to_detect) / scans
+        time_values = [f.time_to_detect for f in feedback if f.time_to_detect]
+        avg_time = sum(time_values) / len(time_values) if time_values else 0
         return {
             'period_days': days,
             'total_scans': scans,

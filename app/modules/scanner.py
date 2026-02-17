@@ -156,7 +156,7 @@ class VulnerabilityScanner:
                         'cwe': 'CWE-319',
                         'detection_method': 'check_ssl_tls'
                     })
-            except:
+            except Exception:
                 findings.append({
                     'title': 'HTTPS Not Available',
                     'severity': 'high',
@@ -178,11 +178,11 @@ class VulnerabilityScanner:
                     'cwe': 'CWE-295',
                     'detection_method': 'check_ssl_tls'
                 })
-            except:
+            except Exception:
                 pass
-        
+
         return findings
-    
+
     def check_security_headers(self, target: str) -> List[Dict[str, Any]]:
         """Check for missing security headers"""
         findings = []
@@ -300,9 +300,9 @@ class VulnerabilityScanner:
                         'detection_method': 'check_common_files'
                     })
                     logger.warning(f"Found exposed file: {url}")
-            except:
+            except Exception:
                 pass
-        
+
         for path in admin_paths:
             url = urljoin(target, path)
             try:
@@ -318,7 +318,7 @@ class VulnerabilityScanner:
                         'detection_method': 'check_common_files'
                     })
                     logger.info(f"Found admin panel: {url}")
-            except:
+            except Exception:
                 pass
         
         return findings
@@ -443,9 +443,9 @@ class VulnerabilityScanner:
                                 'detection_method': 'test_xss_basic'
                             })
                             break
-                    except:
+                    except Exception:
                         pass
-        
+
         except Exception as e:
             logger.error(f"Error testing XSS: {str(e)}")
         
@@ -479,7 +479,7 @@ class VulnerabilityScanner:
                                     'detection_method': 'test_sql_injection'
                                 })
                                 break
-                    except:
+                    except Exception:
                         pass
         return findings
 
@@ -498,7 +498,7 @@ class VulnerabilityScanner:
                     'cwe': 'CWE-548',
                     'detection_method': 'check_directory_listing'
                 })
-        except:
+        except Exception:
             pass
         return findings
 
@@ -528,7 +528,7 @@ class VulnerabilityScanner:
                                     'detection_method': 'check_outdated_server'
                                 })
                                 break
-        except:
+        except Exception:
             pass
         return findings
 
@@ -549,7 +549,7 @@ class VulnerabilityScanner:
                         'detection_method': 'test_csrf'
                     })
                     break
-        except:
+        except Exception:
             pass
         return findings
 
