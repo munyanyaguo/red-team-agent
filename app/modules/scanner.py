@@ -37,12 +37,12 @@ class VulnerabilityScanner:
                 for finding in web_findings:
                     self.learning_engine.record_scan_outcome(
                         finding_id=None, # Will be updated after saving to DB
-                        outcome='true_positive',
+                        outcome='unverified',
                         detection_method=finding.get('detection_method', 'unknown'),
                         time_taken=1.0, # Placeholder
                         environment={'target_tech': recon_data.get('technologies', [])[0] if recon_data and recon_data.get('technologies') else None, 'attack_type': 'vulnerability_scan'}
                     )
-            
+
             if scan_type == 'network' or scan_type == 'basic':
                 # Network-level checks
                 network_findings = self.network_vulnerability_scan(target, recon_data)
@@ -50,7 +50,7 @@ class VulnerabilityScanner:
                 for finding in network_findings:
                     self.learning_engine.record_scan_outcome(
                         finding_id=None, # Will be updated after saving to DB
-                        outcome='true_positive',
+                        outcome='unverified',
                         detection_method=finding.get('detection_method', 'unknown'),
                         time_taken=1.0, # Placeholder
                         environment={'target_tech': recon_data.get('technologies', [])[0] if recon_data and recon_data.get('technologies') else None, 'attack_type': 'vulnerability_scan'}
@@ -324,63 +324,88 @@ class VulnerabilityScanner:
         return findings
     
     def check_information_disclosure(self, target: str) -> List[Dict[str, Any]]:
-        """Check for information disclosure vulnerabilities"""
+        """Check for information disclosure vulnerabilities.
+
+        Uses specific regex patterns to reduce false positives from generic
+        keyword matching (e.g. 'password' in a form label is not a disclosure).
+        """
         findings = []
-        
+
         try:
             response = requests.get(target, timeout=10, verify=False)
-            content = response.text.lower()
-            
-            # Check for common disclosure patterns
-            disclosure_patterns = {
-                'mysql': 'MySQL database referenced in page',
-                'postgresql': 'PostgreSQL database referenced',
-                'mongodb': 'MongoDB referenced',
-                'redis': 'Redis cache referenced',
-                'aws': 'AWS services referenced',
-                'api key': 'Potential API key in HTML',
-                'private key': 'Potential private key in HTML',
-                'secret': 'Potential secret value in HTML',
-                'password': 'Password reference in HTML',
-                'token': 'Token reference in HTML'
-            }
-            
-            for pattern, description in disclosure_patterns.items():
-                if pattern in content:
+            content = response.text
+
+            # Use specific patterns that indicate actual credential/config leaks,
+            # not just the presence of common words in UI text.
+            disclosure_patterns = [
+                {
+                    'pattern': r'(?:mysql|postgres|mongodb|redis)://[^\s<>"\']+',
+                    'description': 'Database connection string found in page source',
+                    'severity': 'high'
+                },
+                {
+                    'pattern': r'(?:api[_-]?key|apikey)\s*[:=]\s*["\']?[A-Za-z0-9_\-]{16,}',
+                    'description': 'Potential API key value exposed in HTML source',
+                    'severity': 'high'
+                },
+                {
+                    'pattern': r'-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----',
+                    'description': 'Private key found in page source',
+                    'severity': 'critical'
+                },
+                {
+                    'pattern': r'(?:password|passwd|pwd)\s*[:=]\s*["\'][^"\']{3,}["\']',
+                    'description': 'Hardcoded password value found in page source',
+                    'severity': 'high'
+                },
+                {
+                    'pattern': r'(?:secret[_-]?key|client[_-]?secret)\s*[:=]\s*["\']?[A-Za-z0-9_\-]{8,}',
+                    'description': 'Secret key or client secret found in page source',
+                    'severity': 'high'
+                },
+                {
+                    'pattern': r'AKIA[0-9A-Z]{16}',
+                    'description': 'AWS Access Key ID found in page source',
+                    'severity': 'critical'
+                },
+            ]
+
+            for check in disclosure_patterns:
+                if re.search(check['pattern'], content, re.IGNORECASE):
                     findings.append({
                         'title': 'Information Disclosure in HTML',
-                        'severity': 'low',
-                        'description': description,
-                        'remediation': 'Remove sensitive information from HTML source',
+                        'severity': check['severity'],
+                        'description': check['description'],
+                        'remediation': 'Remove sensitive information from HTML source and rotate any exposed credentials',
                         'cwe': 'CWE-200',
                         'detection_method': 'check_information_disclosure'
                     })
-            
-            # Check for stack traces or error messages
+
+            # Check for stack traces or detailed error messages (more specific patterns)
             error_patterns = [
-                'stack trace',
-                'exception',
-                'error in',
-                'warning:',
-                'fatal error',
-                'line [0-9]+ in'
+                r'Traceback \(most recent call last\)',
+                r'Fatal error:.*?in\s+\S+\s+on line\s+\d+',
+                r'<b>Warning</b>:.*?in <b>.*?</b> on line <b>\d+</b>',
+                r'Unhandled Exception.*?at\s+\S+\s+line\s+\d+',
+                r'java\.\w+\.(\w+Exception)',
+                r'stack\s*trace[\s:]+.*?(at\s+\w+|File\s+")',
             ]
-            
+
             for pattern in error_patterns:
-                if re.search(pattern, content, re.IGNORECASE):
+                if re.search(pattern, content, re.IGNORECASE | re.DOTALL):
                     findings.append({
-                        'title': 'Error Message Disclosure',
+                        'title': 'Error Message / Stack Trace Disclosure',
                         'severity': 'medium',
-                        'description': 'Application error messages visible to users',
-                        'remediation': 'Implement proper error handling and disable debug mode',
+                        'description': 'Detailed application error messages or stack traces are visible to users',
+                        'remediation': 'Implement proper error handling and disable debug mode in production',
                         'cwe': 'CWE-209',
                         'detection_method': 'check_information_disclosure'
                     })
                     break
-            
+
         except Exception as e:
             logger.error(f"Error checking information disclosure: {str(e)}")
-        
+
         return findings
     
     def test_xss_basic(self, target: str) -> List[Dict[str, Any]]:

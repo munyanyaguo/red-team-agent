@@ -79,8 +79,24 @@ class AISecurityAgent:
         if not self.gemini_client:
             raise Exception('Gemini client not available')
 
-        response = self.gemini_client.generate_content(prompt)
+        grounded_prompt = self.GROUNDING_SYSTEM_PROMPT + "\n\n" + prompt
+        response = self.gemini_client.generate_content(grounded_prompt)
         return response.text
+
+    GROUNDING_SYSTEM_PROMPT = (
+        "You are a security analysis assistant. Your ONLY job is to analyze "
+        "the concrete data provided to you. Follow these rules strictly:\n"
+        "1. NEVER invent, fabricate, or speculate about data not present in the input.\n"
+        "2. If a field is unknown or not present in the data, say 'Not observed' or 'N/A'.\n"
+        "3. Do NOT fabricate CVE IDs, CVSS scores, file paths, or code examples "
+        "unless they are explicitly present in the provided data.\n"
+        "4. Clearly distinguish between confirmed observations and potential risks.\n"
+        "5. Base severity ratings ONLY on what is actually demonstrated in the data.\n"
+        "6. When listing ports, services, or technologies, ONLY include those "
+        "that appear in the provided scan results.\n"
+        "7. If the data is insufficient to answer a question, state that explicitly "
+        "rather than guessing."
+    )
 
     def _call_anthropic(self, prompt: str, max_tokens: int = 2000) -> str:
         """Call Anthropic Claude API"""
@@ -90,11 +106,92 @@ class AISecurityAgent:
         message = self.anthropic_client.messages.create(
             model="claude-3-5-sonnet-20241022",  # Latest Claude 3.5 Sonnet
             max_tokens=max_tokens,
+            system=self.GROUNDING_SYSTEM_PROMPT,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
         return message.content[0].text
+
+    @staticmethod
+    def _validate_recon_analysis(analysis: Dict[str, Any], recon_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate AI analysis against actual reconnaissance data to flag potential hallucinations."""
+        warnings = []
+
+        # Collect actual open ports from recon data
+        actual_ports = set()
+        port_scan = recon_data.get('port_scan', {})
+        if isinstance(port_scan, dict):
+            for p in port_scan.get('open_ports', []):
+                actual_ports.add(str(p))
+
+        # Collect actual technologies
+        actual_techs = set()
+        for tech in recon_data.get('technologies', []):
+            if isinstance(tech, dict):
+                actual_techs.add(tech.get('name', '').lower())
+            elif isinstance(tech, str):
+                actual_techs.add(tech.lower())
+
+        # Check if AI mentions ports not in the scan data
+        analysis_text = json.dumps(analysis).lower()
+        common_ports = ['21', '22', '23', '25', '53', '80', '110', '143', '443', '445',
+                        '993', '995', '1433', '3306', '3389', '5432', '5900', '6379',
+                        '8080', '8443', '27017']
+        for port in common_ports:
+            # Look for port references like "port 22" or ":22" in the AI output
+            if (f'port {port}' in analysis_text or f':{port}' in analysis_text) and port not in actual_ports:
+                warnings.append(f"AI references port {port} which was not found in scan data")
+
+        if warnings:
+            analysis['_validation_warnings'] = warnings
+            analysis['_validation_status'] = 'warnings'
+            logger.warning(f"AI analysis validation warnings: {warnings}")
+        else:
+            analysis['_validation_status'] = 'passed'
+
+        return analysis
+
+    @staticmethod
+    def _validate_vuln_analysis(analysis: Dict[str, Any], findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Validate AI vulnerability analysis against actual findings."""
+        warnings = []
+
+        # Collect actual finding titles and severities
+        actual_titles = {f.get('title', '').lower() for f in findings}
+        actual_severities = {f.get('severity', '').lower() for f in findings}
+        actual_cwes = {f.get('cwe', '').upper() for f in findings if f.get('cwe')}
+
+        # Check if AI claims critical issues exist when none were found
+        critical_issues = analysis.get('critical_issues', [])
+        if critical_issues and 'critical' not in actual_severities and 'high' not in actual_severities:
+            warnings.append(
+                "AI reports critical issues but no critical/high severity findings exist in scan data"
+            )
+
+        # Check for CVE references that weren't in the original data
+        analysis_text = json.dumps(analysis)
+        import re
+        ai_cves = set(re.findall(r'CVE-\d{4}-\d+', analysis_text, re.IGNORECASE))
+        scan_cves = set()
+        for f in findings:
+            found = re.findall(r'CVE-\d{4}-\d+', json.dumps(f), re.IGNORECASE)
+            scan_cves.update(found)
+        fabricated_cves = ai_cves - scan_cves
+        if fabricated_cves:
+            warnings.append(
+                f"AI references CVEs not in scan data: {', '.join(fabricated_cves)}. "
+                "These may be hallucinated and should be independently verified."
+            )
+
+        if warnings:
+            analysis['_validation_warnings'] = warnings
+            analysis['_validation_status'] = 'warnings'
+            logger.warning(f"AI vulnerability analysis validation warnings: {warnings}")
+        else:
+            analysis['_validation_status'] = 'passed'
+
+        return analysis
 
     def analyze_reconnaissance(self, recon_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -107,7 +204,7 @@ class AISecurityAgent:
 
         logger.info(f"Analyzing reconnaissance data for {recon_data.get('target')} using {provider}")
 
-        prompt = f"""You are a professional security researcher analyzing reconnaissance data.
+        prompt = f"""Analyze the following reconnaissance data. ONLY reference information that is explicitly present in the data below. Do NOT invent ports, services, technologies, or vulnerabilities not shown in the data.
 
 Target: {recon_data.get('target')}
 Target Type: {recon_data.get('target_type')}
@@ -115,12 +212,14 @@ Target Type: {recon_data.get('target_type')}
 Reconnaissance Results:
 {json.dumps(recon_data, indent=2)}
 
-Please analyze this data and provide:
-1. Attack Surface Summary - What potential entry points exist?
-2. Priority Targets - Which services/ports should be investigated first?
-3. Technology Stack Assessment - What technologies are in use and their known vulnerabilities?
-4. Risk Assessment - Overall risk level (Critical/High/Medium/Low) and why
-5. Recommended Next Steps - What should be done next in the assessment?
+Based ONLY on the data above, provide:
+1. Attack Surface Summary - List only the entry points that are confirmed by the scan data (open ports, detected services, HTTP endpoints).
+2. Priority Targets - Which of the discovered services/ports should be investigated first and why.
+3. Technology Stack Assessment - List only technologies that were actually detected. For each, note whether there is a known risk, or state "no version info available" if the version was not detected.
+4. Risk Assessment - Overall risk level (Critical/High/Medium/Low) based solely on what was found. Justify using specific data points from the scan.
+5. Recommended Next Steps - Concrete actions based on the actual findings.
+
+If a section has no relevant data, respond with "No data available for this assessment."
 
 Format your response as JSON with these exact keys: attack_surface, priority_targets, tech_assessment, risk_level, risk_reasoning, next_steps"""
 
@@ -132,17 +231,30 @@ Format your response as JSON with these exact keys: attack_surface, priority_tar
 
             # Try to parse as JSON
             try:
-                analysis = json.loads(response_text)
-            except:
+                # Strip markdown code fences if present
+                cleaned = response_text.strip()
+                if cleaned.startswith('```json'):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith('```'):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith('```'):
+                    cleaned = cleaned[:-3]
+                analysis = json.loads(cleaned.strip())
+            except json.JSONDecodeError:
                 # If not valid JSON, create structured response
                 analysis = {
                     'attack_surface': response_text,
                     'priority_targets': [],
                     'tech_assessment': '',
                     'risk_level': 'Unknown',
-                    'risk_reasoning': 'Failed to parse AI response',
-                    'next_steps': []
+                    'risk_reasoning': 'Failed to parse AI response as structured JSON',
+                    'next_steps': [],
+                    '_validation_status': 'unparseable',
+                    '_validation_warnings': ['AI response was not valid JSON; raw text returned without structure validation']
                 }
+
+            # Validate AI output against actual scan data
+            analysis = self._validate_recon_analysis(analysis, recon_data)
 
             logger.info("AI analysis completed successfully")
             return analysis
@@ -162,19 +274,19 @@ Format your response as JSON with these exact keys: attack_surface, priority_tar
 
         logger.info(f"Analyzing {len(findings)} vulnerability findings using {provider}")
 
-        prompt = f"""You are a security expert analyzing vulnerability scan results.
+        prompt = f"""Analyze the following vulnerability scan findings. ONLY discuss vulnerabilities that are explicitly listed in the data. Do NOT add vulnerabilities, CVEs, or attack scenarios that are not supported by the findings below.
 
 Number of Findings: {len(findings)}
 
 Findings:
 {json.dumps(findings, indent=2)}
 
-Please provide:
-1. Executive Summary - High-level overview for non-technical stakeholders
-2. Critical Issues - Most severe vulnerabilities that need immediate attention
-3. Attack Chains - Potential ways these vulnerabilities could be chained together
-4. Business Impact - How these vulnerabilities could impact the business
-5. Prioritized Remediation Plan - Ordered list of fixes with rationale
+Based ONLY on the findings above, provide:
+1. Executive Summary - Summarize the actual findings for non-technical stakeholders. State the number and severity distribution of real findings.
+2. Critical Issues - List only the findings marked as critical or high severity from the data. Do not add issues not in the scan results.
+3. Attack Chains - ONLY describe chains that can be constructed from the specific findings listed above. If no findings can be meaningfully chained, state "No clear attack chains identified from current findings."
+4. Business Impact - Describe impact based on the actual vulnerability types found, not hypothetical ones.
+5. Prioritized Remediation Plan - Order the actual findings by severity and provide the remediation steps already noted in each finding.
 
 Format your response as JSON with these keys: executive_summary, critical_issues, attack_chains, business_impact, remediation_plan"""
 
@@ -185,15 +297,27 @@ Format your response as JSON with these keys: executive_summary, critical_issues
                 response_text = self._call_anthropic(prompt, max_tokens=2500)
 
             try:
-                analysis = json.loads(response_text)
-            except:
+                cleaned = response_text.strip()
+                if cleaned.startswith('```json'):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith('```'):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith('```'):
+                    cleaned = cleaned[:-3]
+                analysis = json.loads(cleaned.strip())
+            except json.JSONDecodeError:
                 analysis = {
                     'executive_summary': response_text,
                     'critical_issues': [],
                     'attack_chains': [],
                     'business_impact': '',
-                    'remediation_plan': []
+                    'remediation_plan': [],
+                    '_validation_status': 'unparseable',
+                    '_validation_warnings': ['AI response was not valid JSON; raw text returned without structure validation']
                 }
+
+            # Validate AI output against actual findings
+            analysis = self._validate_vuln_analysis(analysis, findings)
 
             logger.info("Vulnerability analysis completed")
             return analysis
@@ -213,18 +337,20 @@ Format your response as JSON with these keys: executive_summary, critical_issues
 
         logger.info(f"Generating attack strategy using {provider}")
 
-        prompt = f"""You are a red team operator planning a security assessment.
+        prompt = f"""Based on the following target information from actual scans, suggest an attack strategy. ONLY reference services, ports, technologies, and vulnerabilities that are present in the data. Do NOT invent targets or vulnerabilities not shown below.
 
 Target Information:
 {json.dumps(target_info, indent=2)}
 
-Create a strategic attack plan that includes:
-1. Phase 1: Initial Access - Best methods to gain initial access
-2. Phase 2: Privilege Escalation - Potential escalation paths
-3. Phase 3: Lateral Movement - How to move within the environment
-4. Phase 4: Data Exfiltration - Methods to demonstrate impact
-5. Safety Considerations - What to avoid to prevent damage
-6. Detection Avoidance - How to remain stealthy
+Based ONLY on the confirmed findings and reconnaissance data above, provide:
+1. Phase 1: Initial Access - Methods based on the actual vulnerabilities and exposed services found.
+2. Phase 2: Privilege Escalation - Potential paths based on confirmed findings. If no privilege escalation vectors are evident from the data, state that.
+3. Phase 3: Lateral Movement - Only if the data suggests multiple hosts or network segments. Otherwise state "Insufficient data for lateral movement planning."
+4. Phase 4: Data Exfiltration - Methods relevant to the confirmed vulnerabilities.
+5. Safety Considerations - What to avoid to prevent damage.
+6. Detection Avoidance - Relevant stealth techniques for the attack vectors identified.
+
+For any phase where the data is insufficient, explicitly state "Insufficient data" rather than speculating.
 
 Format as JSON with these keys: initial_access, privilege_escalation, lateral_movement, exfiltration, safety_notes, stealth_techniques"""
 
@@ -466,12 +592,48 @@ Format as JSON with keys: method, steps, safety_notes, expected_result, document
             return {'quality_score': 0, 'improvements_needed': ["Failed to parse AI critique"], 'missing_elements': []}
 
     def _refine_analysis(self, current_analysis: Dict, improvements: List[str], findings: List[Dict]) -> Dict:
-        """Refine the analysis based on critique."""
-        logger.info(f"Applying improvements: {improvements}")
-        refined_analysis = current_analysis.copy()
-        if "Accuracy: Are severity ratings appropriate?" in improvements:
-            refined_analysis['executive_summary'] += " (Severity ratings reviewed and adjusted.)"
-        return refined_analysis
+        """Refine the analysis based on critique by re-running analysis with improvement guidance."""
+        logger.info(f"Refining analysis with improvements: {improvements}")
+
+        refinement_prompt = f"""You previously analyzed vulnerability findings and produced the analysis below.
+A review identified the following issues that need to be corrected:
+
+ISSUES TO FIX:
+{json.dumps(improvements, indent=2)}
+
+YOUR PREVIOUS ANALYSIS:
+{json.dumps(current_analysis, indent=2)}
+
+ORIGINAL FINDINGS DATA:
+{json.dumps(findings, indent=2)}
+
+Please produce a corrected analysis that addresses all the issues listed above.
+ONLY reference data present in the original findings. Do NOT fabricate new findings or details.
+
+Format your response as JSON with these keys: executive_summary, critical_issues, attack_chains, business_impact, remediation_plan"""
+
+        try:
+            if self.has_anthropic:
+                response = self._call_anthropic(refinement_prompt, max_tokens=2500)
+            elif self.has_gemini:
+                response = self._call_gemini(refinement_prompt)
+            else:
+                return current_analysis
+
+            cleaned = response.strip()
+            if cleaned.startswith('```json'):
+                cleaned = cleaned[7:]
+            if cleaned.startswith('```'):
+                cleaned = cleaned[3:]
+            if cleaned.endswith('```'):
+                cleaned = cleaned[:-3]
+
+            refined = json.loads(cleaned.strip())
+            refined = self._validate_vuln_analysis(refined, findings)
+            return refined
+        except Exception as e:
+            logger.error(f"Refinement failed, keeping current analysis: {e}")
+            return current_analysis
 
     def analyze_qa_test_failure(self, test_result: Dict[str, Any], target_url: str) -> Dict[str, Any]:
         """
@@ -614,15 +776,16 @@ REQUIRED OUTPUT STRUCTURE (JSON):
 }}
 
 CRITICAL REQUIREMENTS:
-1. Be SPECIFIC - no generic advice like "improve security" or "fix the bug"
-2. Provide EXACT locations - file paths, function names, configuration keys
-3. Include ACTIONABLE code examples - actual code that can be copy-pasted
-4. Reference STANDARDS - OWASP, CWE, industry best practices with specific items
-5. Quantify IMPACT - use specific metrics, not vague terms
-6. Professional TONE - suitable for presentation to executives, auditors, or clients
-7. Include EVIDENCE - reference specific data from the test results
+1. ONLY reference data present in the test results above. Do NOT invent file paths, function names, or code that is not shown in the data.
+2. For fields where information is not available from the test data, use "Not available from scan data" rather than guessing.
+3. For CVE/CWE references, ONLY include IDs you are highly confident about based on the vulnerability type. Clearly mark any as "Likely applicable" vs "Confirmed."
+4. For CVSS scores, only estimate if you have sufficient data; otherwise state "Insufficient data for scoring."
+5. For code_example fields, only provide generic remediation patterns (e.g., "use parameterized queries") rather than fabricating specific code from unknown source files.
+6. Reference STANDARDS - OWASP, CWE categories that match the vulnerability class.
+7. Include EVIDENCE - reference ONLY specific data from the test results, not assumed data.
+8. Professional TONE - suitable for presentation to executives, auditors, or clients.
 
-Remember: This analysis will be read by executives, developers, security teams, and potentially auditors or regulators. It must be thorough, accurate, and professionally formatted."""
+Remember: Accuracy is more important than completeness. An honest "Not available from scan data" is far better than a fabricated detail."""
 
         try:
             if self.has_gemini:
@@ -854,7 +1017,13 @@ OUTPUT (JSON):
   "technical_notes": "Additional technical details"
 }}
 
-CRITICAL: Be SPECIFIC with exact payloads, URLs, code locations, and working PoC."""
+CRITICAL REQUIREMENTS:
+1. ONLY reference data present in the vulnerability and target context above. Do NOT fabricate URLs, payloads, file paths, or code not present in the provided data.
+2. For CVE references, ONLY include IDs you are confident apply to the specific vulnerability type and version. Mark uncertain references as "Potentially applicable."
+3. For CVSS scores and vectors, only provide if you have clear data to calculate them; otherwise state "Requires further assessment."
+4. For code examples in remediation, provide generic secure coding patterns for the vulnerability class rather than fabricating specific source code.
+5. For file paths and code locations, use "To be determined by development team" unless the data explicitly shows the affected files.
+6. Accuracy is paramount. "Not observed in scan data" is always better than a fabricated detail."""
 
         try:
             if self.has_gemini:
@@ -1045,7 +1214,13 @@ OUTPUT (JSON):
   "notes_for_penetration_test": "Key insights for the testing team"
 }}
 
-CRITICAL: Be SPECIFIC with exact versions, ports, services, and actionable intelligence."""
+CRITICAL REQUIREMENTS:
+1. ONLY reference ports, services, versions, and technologies that appear in the reconnaissance data above.
+2. Do NOT invent IP addresses, hosting providers, or geolocation data not present in the scan results.
+3. For fields where the data is not available, use "Not observed in scan data" rather than guessing.
+4. For CVE references, only include those that are well-known for the specific service versions detected. Mark them as "Potentially applicable" unless the version is an exact match.
+5. For risk ratings and security posture assessments, base them ONLY on the actual data points collected.
+6. Accuracy is paramount. An honest "Not observed" is always better than a fabricated detail."""
 
         try:
             if self.has_gemini:
@@ -1271,7 +1446,13 @@ OUTPUT (JSON):
   }}
 }}
 
-CRITICAL: Provide EXACT reproduction steps, SPECIFIC remediation code, and QUANTIFIED business impact."""
+CRITICAL REQUIREMENTS:
+1. ONLY reference data present in the finding and engagement context above.
+2. For reproduction steps, base them on the actual evidence in the finding data. If evidence is limited, state what additional testing is needed.
+3. For code examples, provide generic secure coding patterns for the vulnerability class rather than fabricating specific source code from unknown files.
+4. For CVE/CWE/MITRE references, only include IDs that clearly match the vulnerability type. Mark uncertain references as "Potentially applicable."
+5. For financial impact, provide ranges and qualitative assessments rather than fabricating specific dollar amounts.
+6. Accuracy is paramount. "Requires further investigation" is always better than fabricated specifics."""
 
         try:
             if self.has_gemini:

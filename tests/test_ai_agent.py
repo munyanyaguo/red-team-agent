@@ -9,10 +9,15 @@ from app.modules.ai_agent import AISecurityAgent
 
 @pytest.fixture
 def ai_agent_mocked():
-    with patch('app.modules.ai_agent.anthropic.Anthropic') as mock_anthropic:
+    with patch('app.modules.ai_agent.anthropic.Anthropic') as mock_anthropic, \
+         patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test-key'}):
         mock_client = MagicMock()
         mock_anthropic.return_value = mock_client
-        yield AISecurityAgent(api_key='test-key'), mock_client
+        agent = AISecurityAgent()
+        # Ensure the mock client is wired up
+        agent.anthropic_client = mock_client
+        agent.has_anthropic = True
+        yield agent, mock_client
 
 class TestAISecurityAgent:
     def test_analyze_reconnaissance(self, ai_agent_mocked):
@@ -24,6 +29,8 @@ class TestAISecurityAgent:
 
         assert 'attack_surface' in result
         assert result['attack_surface'] == 'test'
+        # Validation metadata should be present
+        assert '_validation_status' in result
 
     def test_analyze_vulnerabilities(self, ai_agent_mocked):
         ai_agent, mock_client = ai_agent_mocked
@@ -34,6 +41,8 @@ class TestAISecurityAgent:
 
         assert 'executive_summary' in result
         assert result['executive_summary'] == 'test'
+        # Validation metadata should be present
+        assert '_validation_status' in result
 
     def test_generate_attack_strategy(self, ai_agent_mocked):
         ai_agent, mock_client = ai_agent_mocked
@@ -57,20 +66,21 @@ class TestAISecurityAgent:
     def test_analyze_with_self_critique(self, ai_agent_mocked):
         ai_agent, mock_client = ai_agent_mocked
 
-        with patch.object(ai_agent, 'analyze_vulnerabilities', side_effect=[
-            {'executive_summary': 'initial analysis'},
-            {'executive_summary': 'refined analysis'}
-        ]) as mock_analyze, \
+        with patch.object(ai_agent, 'analyze_vulnerabilities',
+                          return_value={'executive_summary': 'initial analysis'}) as mock_analyze, \
              patch.object(ai_agent, '_critique_analysis', side_effect=[
                 {'quality_score': 0.5, 'improvements_needed': ['test improvement']},
-                {'quality_score': 0.9, 'improvements_needed': []}
-             ]) as mock_critique:
+                {'quality_score': 0.95, 'improvements_needed': []}
+             ]) as mock_critique, \
+             patch.object(ai_agent, '_refine_analysis',
+                          return_value={'executive_summary': 'refined analysis'}) as mock_refine:
 
             findings = [{'title': 'test'}]
             result = ai_agent.analyze_with_self_critique(findings)
 
             assert result['executive_summary'] == 'refined analysis'
-            assert mock_analyze.call_count == 2
+            assert mock_analyze.call_count == 1
+            assert mock_refine.call_count == 1
 
     def test_critique_analysis_error_handling(self, ai_agent_mocked):
         ai_agent, mock_client = ai_agent_mocked
@@ -95,13 +105,16 @@ class TestAISecurityAgent:
         ai_agent, mock_client = ai_agent_mocked
         current_analysis = {'executive_summary': 'initial'}
         improvements = ["Accuracy: Are severity ratings appropriate?"]
-        findings = [{'title': 'test'}]
+        findings = [{'title': 'test', 'severity': 'medium'}]
 
-        with patch.object(ai_agent, 'analyze_vulnerabilities', return_value={'executive_summary': 'refined'}) as mock_analyze:
-            result = ai_agent._refine_analysis(current_analysis, improvements, findings)
+        # _refine_analysis now calls _call_anthropic directly with a refinement prompt
+        mock_client.messages.create.return_value.content = [
+            MagicMock(text='{"executive_summary": "refined", "critical_issues": [], "attack_chains": [], "business_impact": "", "remediation_plan": []}')
+        ]
+        result = ai_agent._refine_analysis(current_analysis, improvements, findings)
 
-            assert result['executive_summary'] == 'refined'
-            mock_analyze.assert_called_once_with(findings)
+        assert result['executive_summary'] == 'refined'
+        assert mock_client.messages.create.called
 
     def test_generate_executive_summary_error_handling(self, ai_agent_mocked):
         ai_agent, mock_client = ai_agent_mocked

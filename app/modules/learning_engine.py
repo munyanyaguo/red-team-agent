@@ -38,11 +38,16 @@ class LearningEngine:
                 context=json.loads(ctx_json) if ctx_json else None  # Parse back to ensure proper type
             )
             db.session.add(knowledge)
-        knowledge.times_used += 1
-        knowledge.last_used = datetime.utcnow()
-        if outcome in ['true_positive', 'successful']:
-            knowledge.times_successful += 1
-        knowledge.success_rate = knowledge.times_successful / knowledge.times_used if knowledge.times_used else 0
+        # Only count verified outcomes toward usage/success statistics
+        if outcome in ['true_positive', 'successful', 'false_positive', 'missed']:
+            knowledge.times_used += 1
+            knowledge.last_used = datetime.utcnow()
+            if outcome in ['true_positive', 'successful']:
+                knowledge.times_successful += 1
+            knowledge.success_rate = knowledge.times_successful / knowledge.times_used if knowledge.times_used else 0
+        else:
+            # 'unverified' outcomes are recorded but don't affect success metrics
+            knowledge.last_used = datetime.utcnow()
         knowledge.effectiveness_score = (
             0.6 * knowledge.success_rate +
             0.4 * max(0, 1 - ((datetime.utcnow() - knowledge.last_used).days / 365))
