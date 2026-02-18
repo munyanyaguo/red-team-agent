@@ -14,7 +14,7 @@ from app.modules.sql_injection import SQLInjectionTester, AdvancedSQLInjection
 
 logger = logging.getLogger(__name__)
 
-sqli_bp = Blueprint('sqli', __name__, url_prefix='/api/sqli')
+sqli_bp = Blueprint('sqli', __name__, url_prefix='/sqli')
 
 
 def verify_authorization(engagement_id: int, target_url: str) -> tuple[bool, str]:

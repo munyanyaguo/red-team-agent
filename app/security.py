@@ -2,27 +2,59 @@
 Security utilities for the Red Team Agent
 
 Includes:
-- Input validation
-- CSRF protection for JWT APIs
+- Input validation with comprehensive checks
+- SSRF protection
 - Rate limiting decorators
 - Authorization validation
+- Request sanitization
 """
 
 import re
+import ipaddress
 from functools import wraps
-from flask import request, jsonify
+from flask import request, jsonify, g
 from urllib.parse import urlparse
 import logging
 
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# SSRF Protection: Blocked IP ranges
+# ==============================================================================
+BLOCKED_IP_RANGES = [
+    ipaddress.ip_network('127.0.0.0/8'),
+    ipaddress.ip_network('10.0.0.0/8'),
+    ipaddress.ip_network('172.16.0.0/12'),
+    ipaddress.ip_network('192.168.0.0/16'),
+    ipaddress.ip_network('169.254.0.0/16'),
+    ipaddress.ip_network('0.0.0.0/8'),
+    ipaddress.ip_network('::1/128'),
+    ipaddress.ip_network('fc00::/7'),
+    ipaddress.ip_network('fe80::/10'),
+]
 
-def validate_url(url: str) -> tuple[bool, str]:
+
+def _is_blocked_ip(hostname: str) -> bool:
+    """Check if a hostname resolves to a blocked IP range (SSRF protection)."""
+    try:
+        addr = ipaddress.ip_address(hostname)
+        return any(addr in network for network in BLOCKED_IP_RANGES)
+    except ValueError:
+        dangerous_hosts = [
+            'localhost', 'localhost.localdomain',
+            '0.0.0.0', '[::]', '[::1]',
+            'metadata.google.internal', '169.254.169.254',
+        ]
+        return hostname.lower() in dangerous_hosts
+
+
+def validate_url(url: str, allow_private: bool = False) -> tuple[bool, str]:
     """
-    Validate URL for security scanning.
+    Validate URL for security scanning with SSRF protection.
 
     Args:
         url: URL to validate
+        allow_private: If True, allows private IP ranges (for internal pentesting)
 
     Returns:
         (is_valid, error_message)
@@ -30,215 +62,185 @@ def validate_url(url: str) -> tuple[bool, str]:
     if not url:
         return False, "URL is required"
 
-    # Basic URL validation
+    if len(url) > 2048:
+        return False, "URL too long (max 2048 characters)"
+
     try:
         parsed = urlparse(url)
-
-        # Check scheme
         if parsed.scheme not in ['http', 'https']:
             return False, "Only HTTP/HTTPS URLs are allowed"
 
-        # Check for localhost/internal IPs (security measure)
         hostname = parsed.hostname or ''
-        if hostname in ['localhost', '127.0.0.1', '0.0.0.0']:
-            return False, "Scanning localhost is not allowed"
+        if not hostname:
+            return False, "URL must contain a valid hostname"
 
-        # Check for private IP ranges
-        if hostname.startswith('192.168.') or hostname.startswith('10.') or hostname.startswith('172.'):
-            logger.warning(f"Attempting to scan private IP: {hostname}")
-            # Allow but log - might be intentional for internal pentesting
+        if not allow_private and _is_blocked_ip(hostname):
+            logger.warning(f"SSRF attempt blocked: {hostname}")
+            return False, "Scanning internal/private addresses is not allowed"
 
-        # Check for SQL injection attempts in URL
-        sql_patterns = [
-            r"('\s*OR\s*'1'\s*=\s*'1)",
-            r"('\s*OR\s*1\s*=\s*1)",
-            r"(--)",
-            r"(;.*DROP)",
-            r"(UNION\s+SELECT)",
+        dangerous_patterns = [
+            r"('\s*OR\s*'1'\s*=\s*'1)", r"('\s*OR\s*1\s*=\s*1)",
+            r"(;.*DROP\s)", r"(UNION\s+SELECT)", r"(<script)",
+            r"(javascript:)", r"(data:text/html)", r"(file://)", r"(gopher://)",
         ]
-
-        for pattern in sql_patterns:
+        for pattern in dangerous_patterns:
             if re.search(pattern, url, re.IGNORECASE):
-                return False, "URL contains potentially malicious SQL patterns"
+                logger.warning(f"Malicious URL pattern detected: {url[:100]}")
+                return False, "URL contains potentially malicious patterns"
 
         return True, ""
-
     except Exception as e:
         return False, f"Invalid URL format: {str(e)}"
 
 
 def validate_target(target: str) -> tuple[bool, str]:
-    """
-    Validate target domain/IP for scanning.
-
-    Args:
-        target: Domain or IP address
-
-    Returns:
-        (is_valid, error_message)
-    """
+    """Validate target domain/IP for scanning."""
     if not target:
         return False, "Target is required"
 
-    # Remove protocol if present
-    target = target.replace('http://', '').replace('https://', '').split('/')[0]
-
-    # Basic validation
-    if len(target) > 253:
+    cleaned = target.replace('http://', '').replace('https://', '').split('/')[0].split(':')[0]
+    if len(cleaned) > 253:
         return False, "Target too long (max 253 characters)"
+    if len(cleaned) < 1:
+        return False, "Target is empty after cleaning"
 
-    # Check for obviously malicious patterns
     malicious_patterns = [
-        r'[;<>|&$]',  # Shell metacharacters
-        r'\.\.',      # Directory traversal
-        r'[\x00-\x1f]',  # Control characters
+        r'[;<>|&$`]', r'\.\.', r'[\x00-\x1f]',
+        r'[\x7f-\x9f]', r'%00', r'\\',
     ]
-
     for pattern in malicious_patterns:
         if re.search(pattern, target):
-            return False, f"Target contains invalid characters"
-
+            return False, "Target contains invalid characters"
     return True, ""
 
 
 def validate_sql_payload(payload: str) -> tuple[bool, str]:
-    """
-    Validate SQL injection payload for testing.
-
-    This validates the payload is reasonable for testing purposes.
-
-    Args:
-        payload: SQL injection payload
-
-    Returns:
-        (is_valid, error_message)
-    """
+    """Validate SQL injection payload for testing."""
     if not payload:
         return False, "Payload is required"
-
     if len(payload) > 10000:
         return False, "Payload too long (max 10000 characters)"
 
-    # Check for destructive operations that should never be tested
     destructive_patterns = [
-        r'DROP\s+DATABASE',
-        r'TRUNCATE\s+TABLE',
-        r'DELETE\s+FROM.*WHERE\s+1\s*=\s*1',
+        r'DROP\s+DATABASE', r'DROP\s+TABLE\s+\*', r'TRUNCATE\s+TABLE',
+        r'DELETE\s+FROM.*WHERE\s+1\s*=\s*1', r'ALTER\s+SYSTEM',
+        r'CREATE\s+USER.*SUPERUSER', r'GRANT\s+ALL',
+        r'xp_cmdshell', r'sp_configure', r'SHUTDOWN\b',
     ]
-
     for pattern in destructive_patterns:
         if re.search(pattern, payload, re.IGNORECASE):
             logger.error(f"Blocked destructive SQL payload: {payload[:100]}")
             return False, "Destructive SQL operations are not allowed"
-
     return True, ""
 
 
 def validate_xss_payload(payload: str) -> tuple[bool, str]:
-    """
-    Validate XSS payload for testing.
-
-    Args:
-        payload: XSS payload
-
-    Returns:
-        (is_valid, error_message)
-    """
+    """Validate XSS payload for testing."""
     if not payload:
         return False, "Payload is required"
-
     if len(payload) > 10000:
         return False, "Payload too long (max 10000 characters)"
-
     return True, ""
 
 
-def require_engagement_context(f):
-    """
-    Decorator to require engagement_id in request and validate it.
+def validate_json_request(required_fields: list = None, max_depth: int = 10) -> tuple[bool, str, dict]:
+    """Validate incoming JSON request body."""
+    if not request.is_json:
+        return False, "Content-Type must be application/json", {}
+    try:
+        data = request.get_json(force=False, silent=False)
+    except Exception:
+        return False, "Invalid JSON in request body", {}
+    if data is None:
+        return False, "Request body is empty", {}
+    if required_fields:
+        missing = [f for f in required_fields if f not in data or data[f] is None]
+        if missing:
+            return False, f"Missing required fields: {', '.join(missing)}", {}
 
-    Usage:
-        @require_engagement_context
-        def my_route():
-            engagement_id = request.json.get('engagement_id')
-            # engagement_id is now validated
-    """
+    def check_depth(obj, current_depth=0):
+        if current_depth > max_depth:
+            return False
+        if isinstance(obj, dict):
+            return all(check_depth(v, current_depth + 1) for v in obj.values())
+        if isinstance(obj, list):
+            return all(check_depth(v, current_depth + 1) for v in obj)
+        return True
+
+    if not check_depth(data):
+        return False, f"JSON nesting too deep (max {max_depth} levels)", {}
+    return True, "", data
+
+
+def require_engagement_context(f):
+    """Decorator to require engagement_id in request and validate it."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         from app.models import Engagement
-
         data = request.get_json() or {}
         engagement_id = data.get('engagement_id')
-
         if not engagement_id:
-            return jsonify({
-                'success': False,
-                'error': 'engagement_id required for this operation'
-            }), 400
-
+            return jsonify({'success': False, 'error': 'engagement_id required for this operation'}), 400
+        try:
+            engagement_id = int(engagement_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'engagement_id must be a valid integer'}), 400
         engagement = Engagement.query.get(engagement_id)
         if not engagement:
-            return jsonify({
-                'success': False,
-                'error': f'Engagement {engagement_id} not found'
-            }), 404
-
-        # Store engagement in request context for use in route
+            return jsonify({'success': False, 'error': f'Engagement {engagement_id} not found'}), 404
         request.engagement = engagement
-
         return f(*args, **kwargs)
-
     return decorated_function
 
 
 def validate_exploitation_authorization(f):
-    """
-    Decorator for exploitation operations requiring explicit authorization.
-
-    Checks:
-    1. Engagement exists and is active
-    2. Authorization flag is explicitly set to True
-    3. User has admin role
-    """
+    """Decorator for exploitation operations requiring explicit authorization."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        from flask import current_app
         from app.models import Engagement
+
+        if not current_app.config.get('ENABLE_EXPLOITATION', False):
+            logger.warning("Exploitation attempt while ENABLE_EXPLOITATION is false")
+            return jsonify({
+                'success': False,
+                'error': 'Exploitation is disabled. Set ENABLE_EXPLOITATION=true in configuration.'
+            }), 403
 
         data = request.get_json() or {}
         engagement_id = data.get('engagement_id')
         authorization_confirmed = data.get('authorization_confirmed', False)
 
-        # Must explicitly confirm authorization
         if authorization_confirmed is not True:
-            logger.warning(f"Exploitation attempt without explicit authorization confirmation")
+            logger.warning("Exploitation attempt without explicit authorization confirmation")
             return jsonify({
                 'success': False,
                 'error': 'Exploitation requires explicit authorization_confirmed=true'
             }), 403
 
         if not engagement_id:
-            return jsonify({
-                'success': False,
-                'error': 'engagement_id required for exploitation'
-            }), 400
+            return jsonify({'success': False, 'error': 'engagement_id required for exploitation'}), 400
+
+        try:
+            engagement_id = int(engagement_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'engagement_id must be a valid integer'}), 400
 
         engagement = Engagement.query.get(engagement_id)
         if not engagement:
-            return jsonify({
-                'success': False,
-                'error': f'Engagement {engagement_id} not found'
-            }), 404
+            return jsonify({'success': False, 'error': f'Engagement {engagement_id} not found'}), 404
 
-        if engagement.status not in ['active']:
+        if engagement.status != 'active':
             return jsonify({
                 'success': False,
                 'error': f'Engagement must be active for exploitation (current: {engagement.status})'
             }), 403
 
-        # Log the authorization
-        logger.warning(f"EXPLOITATION AUTHORIZED: Engagement {engagement_id} - {engagement.name}")
-
+        correlation_id = getattr(g, 'correlation_id', 'unknown')
+        logger.warning(
+            f"EXPLOITATION AUTHORIZED: Engagement {engagement_id} - {engagement.name} "
+            f"[correlation_id={correlation_id}]"
+        )
         request.engagement = engagement
         return f(*args, **kwargs)
-
     return decorated_function

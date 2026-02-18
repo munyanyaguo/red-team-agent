@@ -1,5 +1,8 @@
 # Environment variables
 .env
+.env.local
+.env.*
+!.env.example
 
 # Python
 venv/
@@ -21,14 +24,16 @@ instance/
 test_gemini_key.py
 test_*.py
 
-# Environment files (double-check)
-.env
-.env.local
-.env.*
-
 # API keys and secrets
 **/secrets.json
 **/credentials.json
 **/*-key.json
-**/*.pem
-**/*.key
+
+# TLS certificates (generated, not committed)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+certbot/conf/
+certbot/www/
+
+# Logs and runtime data
+logs/*.log

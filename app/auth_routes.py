@@ -322,3 +322,45 @@ def toggle_api_key(key_id):
         logger.error(f"Error toggling API key: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@auth_bp.route('/api-keys/<int:key_id>/rotate', methods=['POST'])
+@jwt_required()
+def rotate_api_key(key_id):
+    """Rotate an API key - generates a new key value while keeping the same metadata."""
+    try:
+        current_user_id = get_jwt_identity()
+
+        api_key = APIKey.query.filter_by(
+            id=key_id,
+            user_id=current_user_id
+        ).first()
+
+        if not api_key:
+            return jsonify({
+                'success': False,
+                'error': 'API key not found'
+            }), 404
+
+        new_key_value = APIKey.generate_key()
+        api_key.set_key(new_key_value)
+        api_key.is_active = True
+
+        data = request.get_json() or {}
+        if data.get('expires_in_days'):
+            api_key.expires_at = datetime.utcnow() + timedelta(days=int(data['expires_in_days']))
+
+        db.session.commit()
+        logger.info(f"API key rotated: {api_key.name} for user {current_user_id}")
+
+        return jsonify({
+            'success': True,
+            'message': 'API key rotated successfully. Save the new key now, it will not be shown again.',
+            'api_key': new_key_value,
+            'key_info': api_key.to_dict()
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error rotating API key: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

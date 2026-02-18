@@ -56,7 +56,7 @@ def trigger_scan(scan_details, app):
         try:
             import requests
             response = requests.post(
-                'http://localhost:5000/api/scan/full',
+                'http://localhost:5000/api/v1/scan/full',
                 json=scan_details
             )
             if response.status_code == 200:

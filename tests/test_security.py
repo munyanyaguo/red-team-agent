@@ -30,7 +30,7 @@ class TestURLValidation:
         """Test rejection of localhost"""
         is_valid, error = validate_url("http://localhost:8080")
         assert is_valid is False
-        assert "localhost" in error.lower()
+        assert "not allowed" in error.lower()
 
     def test_reject_127001(self):
         """Test rejection of 127.0.0.1"""
@@ -47,7 +47,7 @@ class TestURLValidation:
         """Test rejection of SQL injection in URL"""
         is_valid, error = validate_url("http://example.com?id=1' OR '1'='1")
         assert is_valid is False
-        assert "SQL" in error
+        assert "malicious" in error.lower()
 
     def test_reject_empty_url(self):
         """Test rejection of empty URL"""

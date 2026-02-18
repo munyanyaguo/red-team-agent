@@ -21,7 +21,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-rootkit_bp = Blueprint('rootkit', __name__, url_prefix='/api/rootkit')
+rootkit_bp = Blueprint('rootkit', __name__, url_prefix='/rootkit')
 
 # Initialize rootkit module
 rootkit_module = RootkitTechniques()

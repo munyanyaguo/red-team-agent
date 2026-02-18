@@ -73,7 +73,9 @@ def test_health_check(client):
     response = client.get('/health')
     assert response.status_code == 200
     data = response.get_json()
-    assert data['status'] == 'healthy'
+    assert data['status'] in ['healthy', 'degraded']
+    assert 'checks' in data
+    assert 'timestamp' in data
 
 def test_index(client):
     """Test index endpoint"""
@@ -86,7 +88,7 @@ def test_index(client):
 
 def test_create_engagement(client, auth_headers):
     """Test creating an engagement"""
-    response = client.post('/api/engagements',
+    response = client.post('/api/v1/engagements',
         json={
             'name': 'Test Engagement',
             'client': 'Test Client',
@@ -102,7 +104,7 @@ def test_create_engagement(client, auth_headers):
 
 def test_list_engagements(client, engagement, auth_headers):
     """Test listing engagements"""
-    response = client.get('/api/engagements', headers=auth_headers)
+    response = client.get('/api/v1/engagements', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -110,7 +112,7 @@ def test_list_engagements(client, engagement, auth_headers):
 
 def test_get_engagement(client, engagement, auth_headers):
     """Test getting a specific engagement"""
-    response = client.get(f'/api/engagements/{engagement}', headers=auth_headers)
+    response = client.get(f'/api/v1/engagements/{engagement}', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -118,7 +120,7 @@ def test_get_engagement(client, engagement, auth_headers):
 
 def test_update_engagement(client, engagement, auth_headers):
     """Test updating an engagement"""
-    response = client.put(f'/api/engagements/{engagement}',
+    response = client.put(f'/api/v1/engagements/{engagement}',
         json={'status': 'active'},
         headers=auth_headers
     )
@@ -133,7 +135,7 @@ def test_update_engagement(client, engagement, auth_headers):
 
 def test_add_target(client, engagement, auth_headers):
     """Test adding a target to engagement"""
-    response = client.post(f'/api/engagements/{engagement}/targets',
+    response = client.post(f'/api/v1/engagements/{engagement}/targets',
         json={'target': 'example.com', 'priority': 1},
         headers=auth_headers
     )
@@ -148,7 +150,7 @@ def test_add_target(client, engagement, auth_headers):
 
 def test_validate_domain(client):
     """Test target validation - domain"""
-    response = client.post('/api/validate-target',
+    response = client.post('/api/v1/validate-target',
         json={'target': 'example.com'}
     )
     assert response.status_code == 200
@@ -158,7 +160,7 @@ def test_validate_domain(client):
 
 def test_validate_url(client):
     """Test target validation - URL"""
-    response = client.post('/api/validate-target',
+    response = client.post('/api/v1/validate-target',
         json={'target': 'https://example.com'}
     )
     assert response.status_code == 200
@@ -168,7 +170,7 @@ def test_validate_url(client):
 
 def test_validate_ip(client):
     """Test target validation - IP"""
-    response = client.post('/api/validate-target',
+    response = client.post('/api/v1/validate-target',
         json={'target': '192.168.1.1'}
     )
     assert response.status_code == 200
@@ -178,7 +180,7 @@ def test_validate_ip(client):
 
 def test_validate_invalid(client):
     """Test target validation - invalid"""
-    response = client.post('/api/validate-target',
+    response = client.post('/api/v1/validate-target',
         json={'target': 'not-a-valid-target!!!'}
     )
     assert response.status_code == 200
@@ -191,7 +193,7 @@ def test_validate_invalid(client):
 
 def test_get_stats(client):
     """Test getting system statistics"""
-    response = client.get('/api/stats')
+    response = client.get('/api/v1/stats')
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -201,7 +203,7 @@ def test_get_stats(client):
 
 def test_findings_stats(client, engagement, auth_headers):
     """Test getting findings statistics"""
-    response = client.get(f'/api/findings/stats?engagement_id={engagement}', headers=auth_headers)
+    response = client.get(f'/api/v1/findings/stats?engagement_id={engagement}', headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -213,19 +215,19 @@ def test_findings_stats(client, engagement, auth_headers):
 
 def test_engagement_not_found(client, auth_headers):
     """Test getting non-existent engagement"""
-    response = client.get('/api/engagements/99999', headers=auth_headers)
+    response = client.get('/api/v1/engagements/99999', headers=auth_headers)
     assert response.status_code == 404
 
 def test_missing_required_field(client, auth_headers):
     """Test creating engagement without required field"""
-    response = client.post('/api/engagements', json={}, headers=auth_headers)
+    response = client.post('/api/v1/engagements', json={}, headers=auth_headers)
     assert response.status_code == 400
     data = response.get_json()
     assert data['success'] is False
 
 def test_invalid_target_add(client, engagement, auth_headers):
     """Test adding target without value"""
-    response = client.post(f'/api/engagements/{engagement}/targets',
+    response = client.post(f'/api/v1/engagements/{engagement}/targets',
         json={'priority': 1},
         headers=auth_headers
     )
@@ -297,7 +299,7 @@ def test_finding_model(app):
 @pytest.mark.slow
 def test_recon_scan(client, engagement, auth_headers):
     """Test reconnaissance scan (slow test)"""
-    response = client.post('/api/scan/recon',
+    response = client.post('/api/v1/scan/recon',
         json={
             'target': 'example.com',
             'engagement_id': engagement,

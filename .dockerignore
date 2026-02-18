@@ -1,0 +1,71 @@
+# Version control
+.git
+.gitignore
+.gitkeep
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+LICENSE
+
+# IDE / Editor directories
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Tests
+tests/
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend (built separately if needed)
+frontend/
+UI/
+
+# Docker files (not needed inside the image)
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Logs and data (mounted as volumes)
+logs/
+data/
+reports/
+database.db
+
+# Monitoring configs (mounted as volumes)
+monitoring/
+nginx/
+certbot/
+
+# Backups
+backups/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node modules
+node_modules/
+
+# Scripts (not needed in runtime image)
+scripts/
+
+# Misc
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

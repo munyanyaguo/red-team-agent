@@ -1,0 +1,91 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Total Requests (5m)",
+      "type": "stat",
+      "targets": [{"expr": "sum(rate(redteam_http_requests_total[5m])) * 300", "legendFormat": "requests"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "title": "Avg Response Time",
+      "type": "stat",
+      "targets": [{"expr": "rate(redteam_request_duration_seconds_sum[5m]) / rate(redteam_request_duration_seconds_count[5m])"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "title": "5xx Errors (5m)",
+      "type": "stat",
+      "targets": [{"expr": "sum(rate(redteam_http_requests_total{status=~\"5..\"}[5m])) * 300"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "title": "Service Health",
+      "type": "stat",
+      "targets": [
+        {"expr": "redteam_health_database", "legendFormat": "Database"},
+        {"expr": "redteam_health_redis", "legendFormat": "Redis"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 5,
+      "title": "Request Rate by Status",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(redteam_http_requests_total[5m])) by (status)", "legendFormat": "{{status}}"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 6,
+      "title": "Response Time Percentiles",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(redteam_request_duration_seconds_bucket[5m]))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.90, rate(redteam_request_duration_seconds_bucket[5m]))", "legendFormat": "p90"},
+        {"expr": "histogram_quantile(0.99, rate(redteam_request_duration_seconds_bucket[5m]))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 7,
+      "title": "Requests by Endpoint",
+      "type": "timeseries",
+      "targets": [{"expr": "topk(10, sum(rate(redteam_http_requests_total[5m])) by (endpoint))", "legendFormat": "{{endpoint}}"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 8,
+      "title": "Active Scans & Sessions",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "redteam_active_scans", "legendFormat": "Active Scans"},
+        {"expr": "redteam_active_exploitation_sessions", "legendFormat": "Exploitation Sessions"}
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["redteam", "security"],
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Red Team Agent - Overview",
+  "uid": "redteam-overview",
+  "version": 1
+}

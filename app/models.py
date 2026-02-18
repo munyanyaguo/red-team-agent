@@ -442,3 +442,57 @@ class QATestResult(db.Model):
             'artifacts': json.loads(self.artifacts) if self.artifacts else [],
             'created_at': self.created_at.isoformat()
         }
+
+
+class AuditLog(db.Model):
+    """Database audit log for tracking all security-relevant operations."""
+    __tablename__ = 'audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('redteam_user.id'), nullable=True)
+    username = db.Column(db.String(80))
+    action = db.Column(db.String(100), nullable=False, index=True)
+    resource_type = db.Column(db.String(50))
+    resource_id = db.Column(db.Integer)
+    details = db.Column(db.Text)
+    ip_address = db.Column(db.String(45))
+    user_agent = db.Column(db.String(255))
+    correlation_id = db.Column(db.String(36), index=True)
+    status = db.Column(db.String(20), default='success')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'user_id': self.user_id,
+            'username': self.username,
+            'action': self.action,
+            'resource_type': self.resource_type,
+            'resource_id': self.resource_id,
+            'details': json.loads(self.details) if self.details else None,
+            'ip_address': self.ip_address,
+            'correlation_id': self.correlation_id,
+            'status': self.status,
+        }
+
+    @staticmethod
+    def log(action, resource_type=None, resource_id=None, details=None,
+            user_id=None, username=None, status='success'):
+        """Create an audit log entry."""
+        from flask import request as req, g, has_request_context
+        entry = AuditLog(
+            action=action, resource_type=resource_type,
+            resource_id=resource_id,
+            details=json.dumps(details) if details else None,
+            user_id=user_id, username=username, status=status,
+        )
+        if has_request_context():
+            entry.ip_address = req.remote_addr
+            entry.user_agent = str(req.user_agent)[:255] if req.user_agent else None
+            entry.correlation_id = getattr(g, 'correlation_id', None)
+        try:
+            db.session.add(entry)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()

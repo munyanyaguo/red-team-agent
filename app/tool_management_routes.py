@@ -12,7 +12,7 @@ from app.tool_manager import get_tool_manager, ToolType, SessionStatus
 
 logger = logging.getLogger(__name__)
 
-tool_mgmt_bp = Blueprint('tool_management', __name__, url_prefix='/api/tools')
+tool_mgmt_bp = Blueprint('tool_management', __name__, url_prefix='/tools')
 
 
 def verify_tool_authorization(engagement_id: int, target: str) -> tuple:
